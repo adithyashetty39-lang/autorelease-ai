@@ -1,70 +1,145 @@
 {
-  "_comment": "Tool: search_symbol_usage(symbols[], sha) -> [{file, line, symbol, snippet}]. Same tree-walk as search_imports.json, but regex-matches call sites for specific qualified function names (e.g. 'yaml.full_load'), skipping docstrings/comments -- an earlier version without that skip logic falsely matched a mention of 'yaml.full_load()' inside config.py's own module docstring; verified against the real demo repo before this was caught (see workflows/tools/_verify_search_symbols.js). Same setup as search_imports.json: needs a 'GitHub PAT' Header Auth credential, replace OWNER/REPO. Test standalone with {\"symbols\": [\"yaml.full_load\",\"yaml.unsafe_load\"], \"sha\": \"<head sha>\"}.",
   "name": "AutoRelease Tool - search_symbol_usage",
   "nodes": [
     {
-      "parameters": {},
-      "id": "trigger-1",
+      "id": "3da0bf4e-eb2c-4819-8834-872a70a7cdba",
       "name": "When called as a tool",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
-      "typeVersion": 1,
-      "position": [0, 0]
+      "typeVersion": 1.2,
+      "position": [
+        48,
+        -256
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "sha"
+            },
+            {
+              "name": "symbols"
+            }
+          ]
+        }
+      }
     },
     {
+      "id": "d6fb2fec-bd1f-417a-a5fb-c5aeb9d0a364",
+      "name": "Get repo tree",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        -256
+      ],
       "parameters": {
-        "method": "GET",
         "url": "=https://api.github.com/repos/{{ $json.repo || 'adithyashetty39-lang/stormbreakers-demo' }}/git/trees/{{ $json.sha }}?recursive=1",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {}
       },
-      "id": "http-tree",
-      "name": "Get repo tree",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [260, 0]
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
     },
     {
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "const tree = $json.tree || [];\nconst pyFiles = tree.filter((t) => t.type === 'blob' && t.path.endsWith('.py')).slice(0, 100);\nreturn pyFiles.map((f) => ({ json: { path: f.path, blob_sha: f.sha } }));"
-      },
-      "id": "code-filter",
+      "id": "870b56eb-5a21-40e7-8498-c1b3b6886eb2",
       "name": "Filter .py files",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [520, 0]
+      "position": [
+        576,
+        -256
+      ],
+      "parameters": {
+        "jsCode": "const tree = $json.tree || [];\nconst pyFiles = tree.filter((t) => t.type === 'blob' && t.path.endsWith('.py')).slice(0, 100);\nreturn pyFiles.map((f) => ({ json: { path: f.path, blob_sha: f.sha } }));"
+      }
     },
     {
-      "parameters": {
-        "method": "GET",
-        "url": "=https://raw.githubusercontent.com/{{ $('When called as a tool').first().json.repo || 'adithyashetty39-lang/stormbreakers-demo' }}/{{ $('When called as a tool').first().json.sha }}/{{ $json.path }}",
-        "options": { "response": { "response": { "responseFormat": "text" } } }
-      },
-      "id": "http-file",
+      "id": "0efd19f6-093a-4e29-86b5-d9d4f90941bf",
       "name": "Fetch file content",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [780, 0]
+      "position": [
+        832,
+        -256
+      ],
+      "parameters": {
+        "url": "=https://raw.githubusercontent.com/{{ $('When called as a tool').first().json.repo || 'adithyashetty39-lang/stormbreakers-demo' }}/{{ $('When called as a tool').first().json.sha }}/{{ $json.path }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      }
     },
     {
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// Regex call-site search with a docstring/comment skip -- see the header\n// comment on this file for why that skip exists. Not a real parser: still\n// possible to fool with unusual formatting. Good enough for the MVP's\n// stated 'import-level, not full call-graph' scope (PRD Section 2/6.2).\nconst symbols = $('When called as a tool').first().json.symbols || [];\nconst results = [];\n\nfor (const item of $input.all()) {\n  const filePath = item.json.path;\n  const content = typeof item.json === 'string' ? item.json : (item.json.data || item.json.body || '');\n  const lines = String(content).split('\\n');\n  let inDocstring = false;\n\n  lines.forEach((rawLine, i) => {\n    const trimmed = rawLine.trim();\n    const wasInDocstring = inDocstring;\n    const tripleQuoteCount = (trimmed.match(/\"\"\"|'''/g) || []).length;\n    const isOneLineDocstring = tripleQuoteCount >= 2 && (trimmed.startsWith('\"\"\"') || trimmed.startsWith(\"'''\"));\n    if (tripleQuoteCount % 2 === 1) inDocstring = !inDocstring;\n    if (wasInDocstring || isOneLineDocstring || trimmed.startsWith('#')) return;\n\n    for (const sym of symbols) {\n      const shortName = sym.split('.').pop();\n      const escaped = shortName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n      const re = new RegExp(`\\\\b${escaped}\\\\s*\\\\(`);\n      if (re.test(rawLine)) {\n        results.push({ file: filePath, line: i + 1, symbol: sym, snippet: trimmed });\n      }\n    }\n  });\n}\n\nreturn [{ json: { symbols, matches: results } }];"
-      },
-      "id": "code-search",
+      "id": "194dc625-fd85-4e1d-ac69-d1969d411cfe",
       "name": "Search for call sites",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1040, 0]
+      "position": [
+        1088,
+        -256
+      ],
+      "parameters": {
+        "jsCode": "// Regex call-site search with a docstring/comment skip -- see the header\n// comment on this file for why that skip exists. Not a real parser: still\n// possible to fool with unusual formatting. Good enough for the MVP's\n// stated 'import-level, not full call-graph' scope (PRD Section 2/6.2).\nconst symbolsRaw = $('When called as a tool').first().json.symbols || [];\nconst symbols = typeof symbolsRaw === 'string'\n  ? symbolsRaw.split(',').map((s) => s.trim()).filter(Boolean)\n  : (Array.isArray(symbolsRaw) ? symbolsRaw : []);\nconst results = [];\n\nfor (const item of $input.all()) {\n  const filePath = item.json.path;\n  const content = typeof item.json === 'string' ? item.json : (item.json.data || item.json.body || '');\n  const lines = String(content).split('\\n');\n  let inDocstring = false;\n\n  lines.forEach((rawLine, i) => {\n    const trimmed = rawLine.trim();\n    const wasInDocstring = inDocstring;\n    const tripleQuoteCount = (trimmed.match(/\"\"\"|'''/g) || []).length;\n    const isOneLineDocstring = tripleQuoteCount >= 2 && (trimmed.startsWith('\"\"\"') || trimmed.startsWith(\"'''\"));\n    if (tripleQuoteCount % 2 === 1) inDocstring = !inDocstring;\n    if (wasInDocstring || isOneLineDocstring || trimmed.startsWith('#')) return;\n\n    for (const sym of symbols) {\n      const shortName = sym.split('.').pop();\n      const escaped = shortName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n      const re = new RegExp(`\\\\b${escaped}\\\\s*\\\\(`);\n      if (re.test(rawLine)) {\n        results.push({ file: filePath, line: i + 1, symbol: sym, snippet: trimmed });\n      }\n    }\n  });\n}\n\nreturn [{ json: { symbols, matches: results } }];"
+      }
     }
   ],
   "connections": {
-    "When called as a tool": { "main": [[{ "node": "Get repo tree", "type": "main", "index": 0 }]] },
-    "Get repo tree": { "main": [[{ "node": "Filter .py files", "type": "main", "index": 0 }]] },
-    "Filter .py files": { "main": [[{ "node": "Fetch file content", "type": "main", "index": 0 }]] },
-    "Fetch file content": { "main": [[{ "node": "Search for call sites", "type": "main", "index": 0 }]] }
+    "When called as a tool": {
+      "main": [
+        [
+          {
+            "node": "Get repo tree",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get repo tree": {
+      "main": [
+        [
+          {
+            "node": "Filter .py files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter .py files": {
+      "main": [
+        [
+          {
+            "node": "Fetch file content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch file content": {
+      "main": [
+        [
+          {
+            "node": "Search for call sites",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "active": false,
-  "settings": { "executionOrder": "v1" }
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
 }

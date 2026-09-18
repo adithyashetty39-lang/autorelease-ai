@@ -1,0 +1,261 @@
+{
+  "name": "AutoRelease - Approval Gate",
+  "nodes": [
+    {
+      "id": "approve-webhook-1",
+      "name": "Approval Webhook",
+      "webhookId": "approval-webhook-1789731762870",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "autorelease/approve",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "normalize-approval-1",
+      "name": "Normalize Approval Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const raw = $input.first().json;\nconst input = raw.body ?? raw;\nreturn [{\n  json: {\n    repository: input.repository || 'adithyashetty39-lang/stormbreakers-demo',\n    head_sha: input.head_sha || '',\n    run_id: input.run_id || '',\n    score_summary: input.score_summary || '',\n    approver: input.approver || 'unknown',\n    decision: input.decision === 'approve' ? 'approve' : 'reject',\n    comment: input.comment || ''\n  }\n}];"
+      }
+    },
+    {
+      "id": "decision-if-1",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cond-approve",
+              "leftValue": "={{ $json.decision }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "dispatch-deploy-1",
+      "name": "Dispatch Deploy Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        660,
+        -80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $json.repository }}/actions/workflows/deploy.yml/dispatches",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ref: 'main', inputs: { run_id: String($json.run_id || ''), score: String($json.score_summary || ''), approver: String($json.approver || '') } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "post-approved-status-1",
+      "name": "Post Approved Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        -80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $('Normalize Approval Input').first().json.repository }}/statuses/{{ $('Normalize Approval Input').first().json.head_sha }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ state: 'success', context: 'AutoRelease AI / Release Gate', description: ('APPROVED by ' + $('Normalize Approval Input').first().json.approver + ' -- deploy dispatched').slice(0,140) }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "post-rejected-status-1",
+      "name": "Post Rejected Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        660,
+        80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $json.repository }}/statuses/{{ $json.head_sha }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ state: 'failure', context: 'AutoRelease AI / Release Gate', description: ('REJECTED by ' + $json.approver + ($json.comment ? (': ' + $json.comment) : '')).slice(0,140) }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "final-response-1",
+      "name": "Final Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = $('Normalize Approval Input').first().json;\nconst deployResponse = $input.first().json;\nreturn [{\n  json: {\n    repository: input.repository,\n    head_sha: input.head_sha,\n    decision: input.decision,\n    approver: input.approver,\n    comment: input.comment,\n    action_taken: input.decision === 'approve' ? 'deploy.yml dispatched' : 'commit status updated, no deploy triggered',\n    github_response: deployResponse,\n    processed_at: new Date().toISOString()\n  }\n}];"
+      }
+    }
+  ],
+  "connections": {
+    "Approval Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Approval Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Approval Input": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Dispatch Deploy Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post Rejected Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dispatch Deploy Workflow": {
+      "main": [
+        [
+          {
+            "node": "Post Approved Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Approved Status": {
+      "main": [
+        [
+          {
+            "node": "Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Rejected Status": {
+      "main": [
+        [
+          {
+            "node": "Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

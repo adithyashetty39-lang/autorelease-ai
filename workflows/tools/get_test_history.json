@@ -1,0 +1,459 @@
+{
+  "name": "AutoRelease Tool - get_test_history",
+  "nodes": [
+    {
+      "id": "trigger-tool-1",
+      "name": "When called as a tool",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "test_name"
+            },
+            {
+              "name": "repo"
+            },
+            {
+              "name": "branch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "trigger-webhook-test-1",
+      "name": "Test Webhook",
+      "webhookId": "test-history-webhook-1789731448743",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "autorelease/get_test_history_test",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "normalize-input-1",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const raw = $input.first().json;\nconst input = raw.body ?? raw; // handle both the tool trigger (direct) and the test webhook (wrapped)\nreturn [{ json: { test_name: input.test_name || '', repo: input.repo || 'adithyashetty39-lang/stormbreakers-demo', branch: input.branch || 'main' } }];"
+      }
+    },
+    {
+      "id": "list-runs-1",
+      "name": "List Recent Runs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        440,
+        100
+      ],
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.repo }}/actions/runs?branch={{ $json.branch }}&status=completed&per_page=20",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "extract-run-list-1",
+      "name": "Extract Run List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const runs = ($input.first().json.workflow_runs || []).filter((r) => r.name === 'CI').slice(0, 10);\nreturn runs.map((r) => ({ json: { run_id: r.id, run_number: r.run_number, head_sha: r.head_sha, conclusion: r.conclusion } }));"
+      }
+    },
+    {
+      "id": "fetch-artifacts-1",
+      "name": "Fetch Artifacts For Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Normalize Input').first().json.repo }}/actions/runs/{{ $json.run_id }}/artifacts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "find-artifact-1",
+      "name": "Find Test Results Artifact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const responses = $input.all();\nconst originals = $('Extract Run List').all();\nreturn responses.map((item, i) => {\n  const artifacts = item.json.artifacts || [];\n  const testArtifact = artifacts.find((a) => a.name === 'test-results');\n  const orig = originals[i] ? originals[i].json : {};\n  return {\n    json: {\n      run_id: orig.run_id,\n      run_number: orig.run_number,\n      head_sha: orig.head_sha,\n      conclusion: orig.conclusion,\n      archive_download_url: testArtifact ? testArtifact.archive_download_url : '',\n    },\n  };\n});"
+      }
+    },
+    {
+      "id": "has-artifact-if-1",
+      "name": "Has Artifact",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1320,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.archive_download_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals",
+                "name": "filter.operator.notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "download-zip-1",
+      "name": "Download Artifact Zip",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1540,
+        -40
+      ],
+      "parameters": {
+        "url": "={{ $json.archive_download_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "decompress-1",
+      "name": "Decompress",
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        -40
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "split-binary-1",
+      "name": "Split Binary Files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        -40
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const items = $input.all();\nconst out = [];\nfor (const item of items) {\n  const binary = item.binary || {};\n  for (const [key, file] of Object.entries(binary)) {\n    out.push({\n      json: {\n        run_id: item.json.run_id,\n        run_number: item.json.run_number,\n        head_sha: item.json.head_sha,\n        conclusion: item.json.conclusion,\n        file_name: file.fileName || key,\n      },\n      binary: { data: file },\n    });\n  }\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "extract-file-1",
+      "name": "Extract from File",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        2200,
+        -40
+      ],
+      "parameters": {
+        "operation": "xml",
+        "destinationKey": "xml",
+        "options": {},
+        "binaryPropertyName": "data"
+      }
+    },
+    {
+      "id": "check-test-1",
+      "name": "Check Test In Junit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        -40
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const testName = $('Normalize Input').first().json.test_name || '';\nconst shortName = testName.includes('.') ? testName.split('.').pop() : testName;\nconst items = $input.all();\nconst originals = $('Split Binary Files').all(); // Extract from File drops non-xml json fields -- recover context by index\nconst results = [];\nitems.forEach((item, i) => {\n  const xml = item.json.xml || '';\n  if (!xml.includes('<testsuite')) return; // skip coverage.xml, only want junit\n  if (!shortName) return;\n  const orig = originals[i] ? originals[i].json : {};\n  const marker = 'name=\"' + shortName + '\"';\n  const idx = xml.indexOf(marker);\n  let status = 'not_found';\n  if (idx !== -1) {\n    const selfCloseIdx = xml.indexOf('/>', idx);\n    const closeTagIdx = xml.indexOf('</testcase>', idx);\n    let blockEnd;\n    if (selfCloseIdx !== -1 && (closeTagIdx === -1 || selfCloseIdx < closeTagIdx)) blockEnd = selfCloseIdx;\n    else blockEnd = closeTagIdx !== -1 ? closeTagIdx : xml.length;\n    const block = xml.slice(idx, blockEnd);\n    status = (block.includes('<failure') || block.includes('<error')) ? 'fail' : 'pass';\n  }\n  results.push({ json: { run_id: orig.run_id, run_number: orig.run_number, head_sha: orig.head_sha, conclusion: orig.conclusion, status } });\n});\nreturn results;"
+      }
+    },
+    {
+      "id": "mark-no-data-1",
+      "name": "Mark No Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        260
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().map((item) => ({\n  json: { run_id: item.json.run_id, run_number: item.json.run_number, head_sha: item.json.head_sha, conclusion: item.json.conclusion, status: 'no_test_artifact' },\n}));"
+      }
+    },
+    {
+      "id": "aggregate-1",
+      "name": "Aggregate History",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const items = $input.all();\nconst testName = $('Normalize Input').first().json.test_name || '';\nconst history = items.map((i) => i.json).sort((a, b) => (b.run_number || 0) - (a.run_number || 0));\nconst passCount = history.filter((h) => h.status === 'pass').length;\nconst failCount = history.filter((h) => h.status === 'fail').length;\nconst unknownCount = history.filter((h) => h.status === 'not_found' || h.status === 'no_test_artifact').length;\nreturn [{\n  json: {\n    test_name: testName,\n    runs_checked: history.length,\n    pass_count: passCount,\n    fail_count: failCount,\n    unknown_count: unknownCount,\n    history,\n  },\n}];"
+      }
+    }
+  ],
+  "connections": {
+    "When called as a tool": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "List Recent Runs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Recent Runs": {
+      "main": [
+        [
+          {
+            "node": "Extract Run List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Run List": {
+      "main": [
+        [
+          {
+            "node": "Fetch Artifacts For Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Artifacts For Run": {
+      "main": [
+        [
+          {
+            "node": "Find Test Results Artifact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Test Results Artifact": {
+      "main": [
+        [
+          {
+            "node": "Has Artifact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Artifact": {
+      "main": [
+        [
+          {
+            "node": "Download Artifact Zip",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark No Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Artifact Zip": {
+      "main": [
+        [
+          {
+            "node": "Decompress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decompress": {
+      "main": [
+        [
+          {
+            "node": "Split Binary Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Binary Files": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Check Test In Junit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Test In Junit": {
+      "main": [
+        [
+          {
+            "node": "Aggregate History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark No Data": {
+      "main": [
+        [
+          {
+            "node": "Aggregate History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

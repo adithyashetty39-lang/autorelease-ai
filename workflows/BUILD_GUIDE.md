@@ -1,6 +1,24 @@
 # n8n workflow build guide
 
-**Honesty note:** hand-typing a fully correct n8n workflow export (exact
+**Status update (post hackathon-night live debugging): this doc is now
+historical planning context, not the current source of truth.**
+`wf0_ingest.json`, `wf1_validation.json`, and `approval_gate.json` in this
+folder (plus everything in `tools/`) are now real exports of the actual
+live, working n8n instance — built by hand from this guide originally, then
+run against the real `stormbreakers-demo` repo, and fixed through ~10 real
+bugs found only by actually triggering them (stale node references, a race
+condition between parallel branches, a regex that silently mislabeled which
+test failed, n8n dropping a node's data on zero input items, and others —
+see `workflows/tools/README.md` and the git history around this commit for
+specifics). Import the JSON directly rather than rebuilding from the prose
+below; keep this doc for the reasoning behind the design, not as a
+build-from-scratch reference anymore.
+
+---
+
+**Original honesty note (kept for context — hand-typing a fully correct n8n
+workflow export without a running instance to test against is a good way to
+ship a JSON file that imports with cryptic errors):**
 `typeVersion`s, LangChain node parameter shapes, credential bindings) without
 a running n8n instance to test against is a good way to hand your team a
 JSON file that imports with cryptic errors and burns an hour of Phase 2/3

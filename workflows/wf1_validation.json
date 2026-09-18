@@ -1,0 +1,779 @@
+{
+  "name": "AutoRelease - WF-1 Validation",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "c23e8565-c94f-4b13-8835-c57dad3ce5c8",
+      "name": "WF-0 Analysis Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst input = raw.body ?? raw; // handle both webhook (wrapped) and Execute-Workflow (direct) triggers\n\nreturn [\n  {\n    json: {\n      repository: input.repository,\n\n      run_id: input.workflow_run?.run_id,\n      run_number: input.workflow_run?.run_number,\n      head_sha: input.workflow_run?.head_sha,\n      branch: input.workflow_run?.branch,\n      conclusion: input.workflow_run?.conclusion,\n      workflow_name: input.workflow_run?.workflow_name,\n      html_url: input.workflow_run?.html_url,\n\n      junit_xml: input.test_results?.junit_xml ?? null,\n      coverage_xml: input.test_results?.coverage_xml ?? null,\n\n      junit_available: input.evidence?.junit_available ?? false,\n      coverage_available: input.evidence?.coverage_available ?? false\n    }\n  }\n];"
+      },
+      "id": "6b7ccb72-6341-4cbb-8b39-53263262cfb8",
+      "name": "Normalize Analysis Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst junit = input.junit_xml || '';\nconst coverage = input.coverage_xml || '';\n\nconst testsMatch = junit.match(/tests=\"(\\d+)\"/);\nconst failuresMatch = junit.match(/failures=\"(\\d+)\"/);\nconst errorsMatch = junit.match(/errors=\"(\\d+)\"/);\nconst skippedMatch = junit.match(/skipped=\"(\\d+)\"/);\n\nconst lineRateMatch = coverage.match(/line-rate=\"([^\"]+)\"/);\n\n// Real bug, found by testing against a live multi-testcase run: the old\n// regex used [\\s\\S]*? to span from one <testcase ...> tag to the NEXT\n// <failure>, which happily skips across self-closing sibling testcases and\n// pairs the WRONG classname/name with a failure that belongs to a later\n// test. Fixed with explicit per-testcase boundary scanning (self-closing\n// \"/>\" or the matching \"</testcase>\"), same technique proven in the\n// get_test_history tool.\nconst failedTests = [];\nlet searchFrom = 0;\nwhile (true) {\n  const startIdx = junit.indexOf('<testcase', searchFrom);\n  if (startIdx === -1) break;\n  const tagCloseIdx = junit.indexOf('>', startIdx);\n  if (tagCloseIdx === -1) break;\n  const openTag = junit.slice(startIdx, tagCloseIdx + 1);\n  const isSelfClosing = openTag.endsWith('/>');\n  let blockEnd;\n  if (isSelfClosing) {\n    blockEnd = tagCloseIdx + 1;\n  } else {\n    const closeIdx = junit.indexOf('</testcase>', tagCloseIdx);\n    blockEnd = closeIdx !== -1 ? closeIdx + '</testcase>'.length : junit.length;\n  }\n  const block = junit.slice(startIdx, blockEnd);\n  if (block.includes('<failure') || block.includes('<error')) {\n    const classnameMatch = openTag.match(/classname=\"([^\"]*)\"/);\n    const nameMatch = openTag.match(/\\sname=\"([^\"]*)\"/);\n    const msgMatch = block.match(/<(?:failure|error)[^>]*message=\"([^\"]*)\"/);\n    failedTests.push({\n      classname: classnameMatch ? classnameMatch[1] : '',\n      name: nameMatch ? nameMatch[1] : '',\n      message: msgMatch ? msgMatch[1] : ''\n    });\n  }\n  searchFrom = blockEnd;\n}\n\nreturn [\n  {\n    json: {\n      repository: input.repository,\n      run_id: input.run_id,\n      run_number: input.run_number,\n      head_sha: input.head_sha,\n      branch: input.branch,\n      conclusion: input.conclusion,\n      workflow_name: input.workflow_name,\n      html_url: input.html_url,\n\n      test_summary: {\n        total: Number(testsMatch?.[1] || 0),\n        failures: Number(failuresMatch?.[1] || 0),\n        errors: Number(errorsMatch?.[1] || 0),\n        skipped: Number(skippedMatch?.[1] || 0),\n        passed: Math.max(\n          0,\n          Number(testsMatch?.[1] || 0) -\n          Number(failuresMatch?.[1] || 0) -\n          Number(errorsMatch?.[1] || 0) -\n          Number(skippedMatch?.[1] || 0)\n        )\n      },\n\n      coverage: {\n        line_rate: Number(lineRateMatch?.[1] || 0),\n        percentage: Number(lineRateMatch?.[1] || 0) * 100\n      },\n\n      failed_tests: failedTests\n    }\n  }\n];"
+      },
+      "id": "808c564b-a618-4808-8924-426aaaf0f0d6",
+      "name": "Parse Test Evidence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/repos/adithyashetty39-lang/stormbreakers-demo/dependabot/alerts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "2d687ded-f791-4861-8cdb-dd4ff3bbcb14",
+      "name": "Fetch Dependabot Alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "position": [
+        448,
+        160
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/repos/adithyashetty39-lang/stormbreakers-demo/code-scanning/alerts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "acddcfd1-2ce8-4f13-bc38-ae4f42b65d26",
+      "name": "Fetch Code Scanning Alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "position": [
+        448,
+        368
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst raw = items[0]?.json;\nconst isErrorResponse = raw && typeof raw === 'object' && !Array.isArray(raw) && (raw.message || raw.status) && !Array.isArray(raw.alerts);\nif (isErrorResponse) {\n  return [{ json: { source: 'dependabot', available: false, count: 0, alerts: [], error: raw.message || 'unavailable' } }];\n}\nconst alerts = items.flatMap(item => {\n  const data = item.json;\n  if (Array.isArray(data)) return data;\n  if (Array.isArray(data.alerts)) return data.alerts;\n  return data ? [data] : [];\n});\nreturn [{ json: { source: 'dependabot', available: true, count: alerts.length, alerts: alerts.map(alert => ({\n  number: alert.number ?? null, state: alert.state ?? null, dependency: alert.dependency?.package?.name ?? null,\n  ecosystem: alert.dependency?.package?.ecosystem ?? null, manifest_path: alert.dependency?.manifest_path ?? null,\n  severity: alert.security_advisory?.severity ?? null, cve: alert.security_advisory?.cve?.id ?? null,\n  ghsa: alert.security_advisory?.ghsa_id ?? null, summary: alert.security_advisory?.summary ?? null,\n  vulnerable_version_range: alert.security_vulnerability?.vulnerable_version_range ?? null,\n  first_patched_version: alert.security_vulnerability?.first_patched_version?.identifier ?? null\n})) } }];"
+      },
+      "id": "5a5519be-19cd-4182-9e61-003b4e5274ec",
+      "name": "Normalize Dependabot Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst raw = items[0]?.json;\nconst isErrorResponse = raw && typeof raw === 'object' && !Array.isArray(raw) && (raw.message || raw.status) && !Array.isArray(raw.alerts);\nif (isErrorResponse) {\n  return [{ json: { source: 'code_scanning', available: false, count: 0, alerts: [], error: raw.message || 'unavailable' } }];\n}\nconst alerts = items.flatMap(item => {\n  const data = item.json;\n  if (Array.isArray(data)) return data;\n  if (Array.isArray(data.alerts)) return data.alerts;\n  return data ? [data] : [];\n});\nreturn [{ json: { source: 'code_scanning', available: true, count: alerts.length, alerts: alerts.map(alert => ({\n  number: alert.number ?? null, state: alert.state ?? null, rule_id: alert.rule?.id ?? null,\n  rule_description: alert.rule?.description ?? null, severity: alert.rule?.security_severity_level ?? null,\n  tool: alert.tool?.name ?? null, category: alert.rule?.security_category ?? null, html_url: alert.html_url ?? null,\n  created_at: alert.created_at ?? null, updated_at: alert.updated_at ?? null\n})) } }];"
+      },
+      "id": "987850fa-bdc5-4f07-b838-22fd2710b68e",
+      "name": "Normalize Code Scanning Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "id": "c2b07e1f-5efe-4e3f-bb9e-a2ca7fbcfd5a",
+      "name": "Merge Security and Test Evidence",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        896,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst test = items.find(i => i.json.test_summary);\nconst dependabot = items.find(i => i.json.source === 'dependabot');\nconst codeScanning = items.find(i => i.json.source === 'code_scanning');\n\nreturn [\n  {\n    json: {\n      repository: test?.json.repository ?? '',\n      run_id: test?.json.run_id ?? '',\n      run_number: test?.json.run_number ?? null,\n      head_sha: test?.json.head_sha ?? '',\n      branch: test?.json.branch ?? '',\n      conclusion: test?.json.conclusion ?? '',\n      workflow_name: test?.json.workflow_name ?? '',\n      html_url: test?.json.html_url ?? '',\n\n      test_summary: test?.json.test_summary ?? {\n        total: 0,\n        passed: 0,\n        failures: 0,\n        errors: 0,\n        skipped: 0\n      },\n\n      coverage: test?.json.coverage ?? {\n        line_rate: 0,\n        percentage: 0\n      },\n\n      failed_tests: test?.json.failed_tests ?? [],\n\n      dependabot: dependabot?.json ?? {\n        source: 'dependabot',\n        available: false,\n        count: 0,\n        alerts: []\n      },\n\n      code_scanning: codeScanning?.json ?? {\n        source: 'code_scanning',\n        available: false,\n        count: 0,\n        alerts: []\n      }\n    }\n  }\n];"
+      },
+      "id": "3a1a838d-ccda-4ab1-b934-699a69b07775",
+      "name": "Build Validation Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json) }}",
+        "options": {
+          "systemMessage": "You are the AutoRelease Validation Agent.\n\nYour job is to validate whether a GitHub Actions run is safe to proceed toward release.\n\nYou will receive structured evidence containing:\n- CI test results\n- Code coverage\n- Failed tests\n- Dependabot security alerts\n- Code scanning alerts\n- Repository and workflow metadata\n\nRules:\n1. Base every conclusion on the provided evidence and tool results.\n2. Do not invent vulnerabilities, test failures, dependencies, or code usage.\n3. Use the available tools when additional repository or vulnerability evidence is required.\n4. Distinguish clearly between:\n   - confirmed findings\n   - probable findings\n   - insufficient evidence\n5. A failing test does not automatically mean a security vulnerability.\n6. A security alert does not automatically mean the vulnerable dependency is reachable or exploitable.\n7. Prefer concrete evidence such as vulnerable functions, imports, symbol usage, advisory details, and test results.\n8. Be conservative: when evidence is insufficient, say so.\n9. Your analysis must be deterministic and explain the evidence supporting each finding.\n10. Do not recommend release approval merely because coverage is high or tests pass.\n\nReturn your validation analysis as structured JSON with:\n{\n  \"decision\": \"approve\" | \"block\" | \"review\",\n  \"confidence\": 0-100,\n  \"summary\": \"short explanation\",\n  \"test_findings\": [],\n  \"security_findings\": [],\n  \"validated_findings\": [],\n  \"required_actions\": []\n}\n\n11. For Dependabot alerts, use get_advisory to find vulnerable_functions, then search_imports to see if the package is imported, then search_symbol_usage on those specific functions to check whether the vulnerable code path is actually called (not just imported). A vulnerable package that is imported but whose vulnerable function is never called is a much lower risk than one that is actively invoked -- say so explicitly in security_findings, citing what search_symbol_usage found.\n\n12. For EVERY failed test in the current run, call get_test_history(test_name) before classifying it. This checks the same test's pass/fail record on the last several completed runs on main -- NOT this PR's history (a new PR has no history of its own; the shared main branch does).\n    - If the history shows this test has ALSO failed on main before (intermittently, with passes in between, unrelated to whatever changed on those commits), classify it as a KNOWN FLAKY TEST, not a blocker. State the specific pass/fail counts as evidence (e.g. \"failed 2 of the last 6 runs on main\").\n    - If the history shows this test has NEVER failed on main before (all recent runs passed), classify it as a LIKELY REGRESSION introduced by this change -- this is a real blocker, not something to wave away.\n    - If get_test_history returns no usable history (runs_checked is 0, or all unknown_count), say so explicitly and treat it as insufficient evidence, not as automatically flaky OR automatically a regression.\n    - Never call a failing test \"probably flaky\" without having actually called get_test_history and citing what it returned. A guess is not evidence."
+        }
+      },
+      "id": "08dc8919-57dd-4128-a631-54c817f8b6d1",
+      "name": "AutoRelease Validation Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "position": [
+        1280,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.6-flash",
+        "options": {}
+      },
+      "id": "a3e2a415-1834-4501-984a-ae95af4705de",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "position": [
+        1152,
+        384
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "Rxzakt2ykaTwFQ3u",
+          "name": "Gemini Hackathon"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "Retrieve authoritative vulnerability advisory details for a GHSA ID, including severity, affected versions, patched versions, and vulnerable functions when available.",
+        "workflowId": {
+          "__rl": true,
+          "value": "2q4rgSxsN8TxW2tM",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/2q4rgSxsN8TxW2tM",
+          "cachedResultName": "AutoRelease Tool - get_advisory"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [
+            "ghsa_id"
+          ],
+          "schema": [
+            {
+              "id": "ghsa_id",
+              "displayName": "ghsa_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "a029c164-c64f-4b81-b218-fa960a09abe8",
+      "name": "Call 'AutoRelease Tool - get_advisory'",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1360,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "0HSchB72dZshvTAk",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/0HSchB72dZshvTAk",
+          "cachedResultName": "AutoRelease Tool - search_imports"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "repo": "={{ $fromAI('repo', ``, 'string') }}",
+            "sha": "={{ $fromAI('sha', ``, 'string') }}",
+            "package": "={{ $fromAI('package', 'the package/module name to search for, e.g. yaml or PIL', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "repo",
+              "displayName": "repo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "sha",
+              "displayName": "sha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "package",
+              "displayName": "package",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "b3406e53-45db-451c-b73b-8f72e36f299b",
+      "name": "Call 'AutoRelease Tool - search_imports'",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1616,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "autorelease/validate",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "wh-validate-trigger-1",
+      "name": "Validate Webhook",
+      "webhookId": "wh-validate-1789729163189",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -224,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst agentText = raw.output || '';\n// Strip markdown code fences if the model wrapped its JSON in ```json ... ```\nconst fenceMatch = agentText.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\nconst jsonText = fenceMatch ? fenceMatch[1].trim() : agentText.trim();\n\nlet parsed = null;\nlet parseError = null;\ntry {\n  parsed = JSON.parse(jsonText);\n} catch (e) {\n  parseError = e.message;\n}\n\n// Pull the deterministic evidence context back in -- the validation gate checks\n// the agent's claims against this, not against the agent's own say-so.\nconst context = $('Build Validation Context').first().json;\n\nreturn [{\n  json: {\n    agent_raw_output: agentText,\n    agent_parsed: parsed,\n    agent_parse_error: parseError,\n    context: context\n  }\n}];"
+      },
+      "id": "parse-agent-output-1",
+      "name": "Parse Agent Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deterministic Validation Gate -- the PRD's core trust mechanism: the LLM\n// classifies (decision/confidence/reasoning), this code enforces policy. The\n// agent's own \"approve\" is NEVER taken at face value here -- every approve is\n// checked against the deterministic evidence, and every gate below can escalate\n// the decision but the agent can never talk its way past one.\nconst input = $input.first().json;\nconst agent = input.agent_parsed;\nconst context = input.context;\n\nconst overrides = [];\nlet finalDecision;\nlet finalConfidence;\n\nif (!agent || typeof agent !== 'object') {\n  finalDecision = 'review';\n  finalConfidence = 0;\n  overrides.push('Agent output could not be parsed as valid JSON (parse error: ' + (input.agent_parse_error || 'unknown') + ') -- forced to review.');\n} else {\n  const validDecisions = ['approve', 'block', 'review'];\n  let decision = validDecisions.includes(agent.decision) ? agent.decision : 'review';\n  if (!validDecisions.includes(agent.decision)) {\n    overrides.push('Agent returned an invalid decision value \"' + agent.decision + '\" -- forced to review.');\n  }\n  finalConfidence = typeof agent.confidence === 'number' ? agent.confidence : 0;\n\n  // RULE 1: a real failing test (from deterministic XML parsing, not the agent's\n  // claim) can never be silently approved.\n  const failedTestCount = context?.test_summary?.failures ?? 0;\n  if (failedTestCount > 0 && decision === 'approve') {\n    decision = 'review';\n    overrides.push('Deterministic check: ' + failedTestCount + ' test failure(s) recorded in test_summary, but agent said approve -- overridden to review.');\n  }\n\n  // RULE 2: can't approve if security evidence was unavailable (permissions\n  // error, API failure). Approving without having actually checked is not\n  // allowed -- matches PRD: insufficient evidence forces manual review.\n  const securityUnavailable = (context?.dependabot?.available === false) || (context?.code_scanning?.available === false);\n  if (securityUnavailable && decision === 'approve') {\n    decision = 'review';\n    overrides.push('Deterministic check: security evidence (Dependabot and/or Code Scanning) was unavailable, but agent said approve -- overridden to review.');\n  }\n\n  // RULE 3: low agent confidence forces human review even on an approve.\n  if (finalConfidence < 70 && decision === 'approve') {\n    decision = 'review';\n    overrides.push('Deterministic check: agent confidence ' + finalConfidence + ' is below the 70 threshold for an approve decision -- overridden to review.');\n  }\n\n  // RULE 4: HARD GATE -- a detected secret always blocks. This is a gate, not\n  // a score deduction: the agent cannot reason its way past it.\n  const codeScanningAlerts = context?.code_scanning?.alerts || [];\n  const hasSecretAlert = codeScanningAlerts.some((a) => {\n    const tool = (a.tool || '').toLowerCase();\n    const rule = (a.rule_id || '').toLowerCase();\n    return tool.includes('gitleaks') || rule.includes('secret') || rule.includes('api-key') || rule.includes('credential');\n  });\n  if (hasSecretAlert && decision !== 'block') {\n    decision = 'block';\n    overrides.push('HARD GATE: a secret-detection alert (gitleaks/credential pattern) is present -- decision forced to block regardless of agent output. This gate cannot be overridden.');\n  }\n\n  finalDecision = decision;\n}\n\nreturn [{\n  json: {\n    repository: context?.repository ?? null,\n    run_id: context?.run_id ?? null,\n    head_sha: context?.head_sha ?? null,\n    html_url: context?.html_url ?? null,\n    agent_decision: agent?.decision ?? null,\n    agent_confidence: agent?.confidence ?? null,\n    agent_summary: agent?.summary ?? null,\n    agent_test_findings: agent?.test_findings ?? [],\n    agent_security_findings: agent?.security_findings ?? [],\n    agent_validated_findings: agent?.validated_findings ?? [],\n    agent_required_actions: agent?.required_actions ?? [],\n    final_decision: finalDecision,\n    final_confidence: finalConfidence,\n    deterministic_overrides: overrides,\n    was_overridden: overrides.length > 0,\n    evaluated_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "validation-gate-1",
+      "name": "Deterministic Validation Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $json.repository }}/statuses/{{ $json.head_sha }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ state: $json.final_decision === \"approve\" ? \"success\" : ($json.final_decision === \"block\" ? \"failure\" : \"pending\"), context: \"AutoRelease AI / Release Gate\", description: ($json.final_decision.toUpperCase() + \": \" + $json.agent_summary).slice(0, 140), target_url: $json.html_url }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "post-commit-status-1",
+      "name": "Post Commit Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2000,
+        176
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine the deterministic verdict with confirmation that GitHub was updated.\nconst gate = $('Deterministic Validation Gate').first().json;\nconst statusResponse = $input.first().json;\nconst statusPosted = !(statusResponse && (statusResponse.message || statusResponse.status === '404' || statusResponse.status === '422'));\n\nreturn [{\n  json: Object.assign({}, gate, {\n    github_status_posted: statusPosted,\n    github_status_response: statusResponse\n  })\n}];"
+      },
+      "id": "final-output-1",
+      "name": "Final Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "description": "Search the repository for call sites of specific qualified function names (e.g. \"yaml.full_load\"), to determine whether a vulnerable function from a CVE advisory is actually invoked anywhere in the code -- not just imported. Use this AFTER get_advisory has given you a list of vulnerable_functions, to decide reachable vs unreachable.",
+        "workflowId": {
+          "__rl": true,
+          "value": "IFTqZ8InXBbgfPHj",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/IFTqZ8InXBbgfPHj",
+          "cachedResultName": "AutoRelease Tool - search_symbol_usage"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sha": "={{ $fromAI('sha', ``, 'string') }}",
+            "symbols": "={{ $fromAI('symbols', 'comma-separated qualified function names, e.g. yaml.full_load,yaml.unsafe_load', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "sha",
+              "displayName": "sha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "symbols",
+              "displayName": "symbols",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "call-search-symbol-usage-1",
+      "name": "Call 'AutoRelease Tool - search_symbol_usage'",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1632,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "description": "For a specific failed test, fetch its pass/fail status across the last several completed CI runs on the main branch (not this PR/run). Use this to distinguish a KNOWN FLAKY test (has failed intermittently on main before, unrelated to any current change) from a NEW REGRESSION (has always passed on main until now). test_name should be the full dotted name, e.g. \"tests.test_flaky.test_cart_total_under_load_flaky\".",
+        "workflowId": {
+          "__rl": true,
+          "value": "Tk8sieEVuYeD6eLr",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/Tk8sieEVuYeD6eLr",
+          "cachedResultName": "AutoRelease Tool - get_test_history"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "test_name": "={{ $fromAI('test_name', 'full dotted test name, e.g. tests.test_flaky.test_cart_total_under_load_flaky', 'string') }}",
+            "repo": "={{ $fromAI('repo', ``, 'string') }}",
+            "branch": "={{ $fromAI('branch', 'defaults to main', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "test_name",
+              "displayName": "test_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "repo",
+              "displayName": "repo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "branch",
+              "displayName": "branch",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "call-get-test-history-1",
+      "name": "Call 'AutoRelease Tool - get_test_history'",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1456,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst realItems = items.filter((i) => i.json && Object.keys(i.json).length > 0);\nif (realItems.length === 1) {\n  const only = realItems[0].json;\n  const looksLikeError = only && typeof only === 'object' && !Array.isArray(only) && (only.message || only.status) && !Array.isArray(only.alerts);\n  if (looksLikeError) return [{ json: only }];\n}\nreturn [{ json: { alerts: realItems.map((i) => i.json) } }];"
+      },
+      "id": "ensure-dependabot-response-1",
+      "name": "Ensure Dependabot Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        736,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst realItems = items.filter((i) => i.json && Object.keys(i.json).length > 0);\nif (realItems.length === 1) {\n  const only = realItems[0].json;\n  const looksLikeError = only && typeof only === 'object' && !Array.isArray(only) && (only.message || only.status) && !Array.isArray(only.alerts);\n  if (looksLikeError) return [{ json: only }];\n}\nreturn [{ json: { alerts: realItems.map((i) => i.json) } }];"
+      },
+      "id": "ensure-codescanning-response-1",
+      "name": "Ensure Code Scanning Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        368
+      ]
+    }
+  ],
+  "connections": {
+    "WF-0 Analysis Input": {
+      "main": [
+        [
+          {
+            "node": "Normalize Analysis Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Analysis Input": {
+      "main": [
+        [
+          {
+            "node": "Parse Test Evidence",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Dependabot Alerts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Code Scanning Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Test Evidence": {
+      "main": [
+        [
+          {
+            "node": "Merge Security and Test Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Dependabot Alerts": {
+      "main": [
+        [
+          {
+            "node": "Ensure Dependabot Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Code Scanning Alerts": {
+      "main": [
+        [
+          {
+            "node": "Ensure Code Scanning Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Dependabot Alerts": {
+      "main": [
+        [
+          {
+            "node": "Merge Security and Test Evidence",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Normalize Code Scanning Alerts": {
+      "main": [
+        [
+          {
+            "node": "Merge Security and Test Evidence",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Security and Test Evidence": {
+      "main": [
+        [
+          {
+            "node": "Build Validation Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Validation Context": {
+      "main": [
+        [
+          {
+            "node": "AutoRelease Validation Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AutoRelease Validation Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'AutoRelease Tool - get_advisory'": {
+      "ai_tool": [
+        [
+          {
+            "node": "AutoRelease Validation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'AutoRelease Tool - search_imports'": {
+      "ai_tool": [
+        [
+          {
+            "node": "AutoRelease Validation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Analysis Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AutoRelease Validation Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Agent Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Agent Output": {
+      "main": [
+        [
+          {
+            "node": "Deterministic Validation Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deterministic Validation Gate": {
+      "main": [
+        [
+          {
+            "node": "Post Commit Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Commit Status": {
+      "main": [
+        [
+          {
+            "node": "Final Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'AutoRelease Tool - search_symbol_usage'": {
+      "ai_tool": [
+        [
+          {
+            "node": "AutoRelease Validation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'AutoRelease Tool - get_test_history'": {
+      "ai_tool": [
+        [
+          {
+            "node": "AutoRelease Validation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure Dependabot Response": {
+      "main": [
+        [
+          {
+            "node": "Normalize Dependabot Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure Code Scanning Response": {
+      "main": [
+        [
+          {
+            "node": "Normalize Code Scanning Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
+}

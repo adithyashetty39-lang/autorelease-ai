@@ -1,0 +1,371 @@
+{
+  "name": "AutoRelease - WF-0 Ingest",
+  "nodes": [
+    {
+      "id": "66f93d86-5223-499c-b513-f92964433f85",
+      "name": "Webhook",
+      "webhookId": "95ed2e7f-4978-410b-b7a7-e8836c93a4b0",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "autorelease/github",
+        "options": {}
+      }
+    },
+    {
+      "id": "e90fea41-80c6-436a-a9d7-3ebc4fb3220e",
+      "name": "Normalize GitHub Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\n// GitHub webhook payload is normally inside \"body\"\nconst payload = input.body ?? input;\n\nconst run = payload.workflow_run ?? {};\nconst repo = payload.repository ?? {};\n\n// We only want completed workflow runs\nif (payload.action && payload.action !== 'completed') {\n  return [];\n}\n\nreturn [\n  {\n    json: {\n      action: payload.action ?? 'completed',\n\n      run_id: run.id,\n      run_number: run.run_number,\n\n      workflow_name: run.name,\n      workflow_path: run.path,\n\n      status: run.status,\n      conclusion: run.conclusion,\n\n      head_sha: run.head_sha,\n      branch: run.head_branch,\n\n      repository: repo.full_name,\n      repository_owner: repo.owner?.login ?? '',\n      repository_name: repo.name ?? '',\n\n      html_url: run.html_url,\n\n      created_at: run.created_at,\n      updated_at: run.updated_at,\n\n      sender: payload.sender?.login ?? ''\n    }\n  }\n];"
+      }
+    },
+    {
+      "id": "46f7901a-fc1a-4964-bb22-2a4ad87d2acf",
+      "name": "Fetch Artifacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "url": "=https://api.github.com/repos/adithyashetty39-lang/stormbreakers-demo/actions/runs/{{ $json.run_id }}/artifacts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "a07e51c7-02e7-4d1f-b220-d4314c5e7835",
+      "name": "Extract Artifacts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\n\nconst artifacts = response.artifacts || [];\n\nreturn artifacts.map(artifact => ({\n  json: {\n    artifact_id: artifact.id,\n    artifact_name: artifact.name,\n    artifact_size: artifact.size_in_bytes,\n    archive_download_url: artifact.archive_download_url,\n    expired: artifact.expired,\n    created_at: artifact.created_at\n  }\n}));"
+      }
+    },
+    {
+      "id": "6bd54e1a-4af3-4860-b1b9-d22328a02441",
+      "name": "Filter Test Results Artifact",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5f43c696-8fa8-478c-8376-e140c8260a9d",
+              "leftValue": "={{ $json.artifact_name }}",
+              "rightValue": "test-results",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f51b6e50-333c-4bc6-9fff-10f4b1aa7069",
+      "name": "Download Test Results Artifact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1120,
+        -96
+      ],
+      "parameters": {
+        "url": "={{ $json.archive_download_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "0f05d478-b85f-48b7-92ac-1b4e0b9c8a3f",
+      "name": "Decompress Artifact",
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        -96
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "700c2bb6-0d0f-4f51-97f9-5b5cfa96d48c",
+      "name": "Inspect Artifact Files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        176
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.flatMap((item, index) => {\n  const binary = item.binary || {};\n\n  return Object.entries(binary).map(([key, file]) => ({\n    json: {\n      item_index: index,\n      binary_key: key,\n      file_name: file.fileName || '',\n      mime_type: file.mimeType || '',\n      file_size: file.fileSize || ''\n    }\n  }));\n});"
+      }
+    },
+    {
+      "id": "8bb615c0-2979-44c7-953a-ccb686ed5e11",
+      "name": "Split XML Files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        -96
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst binary = item.binary || {};\n\nreturn Object.entries(binary).map(([key, file]) => ({\n  json: {\n    file_name: file.fileName || key\n  },\n  binary: {\n    data: file\n  }\n}));"
+      }
+    },
+    {
+      "id": "a4e5e24e-f707-4ddd-9bf3-01dd6252edf9",
+      "name": "Extract from File",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        2016,
+        -96
+      ],
+      "parameters": {
+        "operation": "xml",
+        "destinationKey": "xml",
+        "options": {}
+      }
+    },
+    {
+      "id": "82efc158-c773-47d6-b701-12a7f1de695d",
+      "name": "Parse Test Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        -96
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nlet coverageXml = null;\nlet junitXml = null;\n\nfor (const item of items) {\n  const xml = item.json.xml;\n\n  if (!xml) continue;\n\n  const text = xml.trim();\n\n  if (text.includes('<coverage ')) {\n    coverageXml = xml;\n  } else if (\n    text.includes('<testsuite') ||\n    text.includes('<testsuites')\n  ) {\n    junitXml = xml;\n  }\n}\n\nreturn [\n  {\n    json: {\n      coverage_xml: coverageXml,\n      junit_xml: junitXml,\n      coverage_file: coverageXml ? 'coverage.xml' : null,\n      junit_file: junitXml ? 'junit.xml' : null,\n    },\n  },\n];"
+      }
+    },
+    {
+      "id": "8c2f2db8-c108-4d2f-ba1f-13e69b16cc70",
+      "name": "Prepare Analysis Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        -96
+      ],
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nreturn [\n  {\n    json: {\n      repository: 'adithyashetty39-lang/stormbreakers-demo',\n\n      workflow_run: {\n        run_id: $('Normalize GitHub Event').first().json.run_id,\n        run_number: $('Normalize GitHub Event').first().json.run_number,\n        workflow_name: $('Normalize GitHub Event').first().json.workflow_name,\n        head_sha: $('Normalize GitHub Event').first().json.head_sha,\n        branch: $('Normalize GitHub Event').first().json.branch,\n        conclusion: $('Normalize GitHub Event').first().json.conclusion,\n        html_url: $('Normalize GitHub Event').first().json.html_url\n      },\n\n      test_results: {\n        junit_xml: input.junit_xml,\n        coverage_xml: input.coverage_xml\n      },\n\n      evidence: {\n        junit_available: !!input.junit_xml,\n        coverage_available: !!input.coverage_xml\n      }\n    }\n  }\n];"
+      }
+    },
+    {
+      "id": "aeb7c2cc-46a5-4b87-ae92-a533bf93429d",
+      "name": "Run WF-1 Validation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2688,
+        -96
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "O2WbHhzzSD9P286w",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/O2WbHhzzSD9P286w",
+          "cachedResultName": "AutoRelease - WF-1 Validation"
+        },
+        "workflowInputs": {
+          "mappingMode": "passthrough",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize GitHub Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize GitHub Event": {
+      "main": [
+        [
+          {
+            "node": "Fetch Artifacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Artifacts": {
+      "main": [
+        [
+          {
+            "node": "Extract Artifacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Artifacts": {
+      "main": [
+        [
+          {
+            "node": "Filter Test Results Artifact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Test Results Artifact": {
+      "main": [
+        [
+          {
+            "node": "Download Test Results Artifact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Test Results Artifact": {
+      "main": [
+        [
+          {
+            "node": "Decompress Artifact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decompress Artifact": {
+      "main": [
+        [
+          {
+            "node": "Split XML Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inspect Artifact Files": {
+      "main": [
+        []
+      ]
+    },
+    "Split XML Files": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Parse Test Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Test Results": {
+      "main": [
+        [
+          {
+            "node": "Prepare Analysis Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Analysis Input": {
+      "main": [
+        [
+          {
+            "node": "Run WF-1 Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
+}
