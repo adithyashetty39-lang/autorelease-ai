@@ -1,0 +1,17 @@
+{
+  "_scenario": "S1 — clean change, GitHub green, AutoRelease should approve ~100",
+  "repo": "stormbreakers/stormbreakers-demo-shop",
+  "pr": 10,
+  "sha": "1111111111111111111111111111111111111a",
+  "ci": {
+    "conclusion": "success",
+    "failed_tests": []
+  },
+  "coverage": {
+    "head_pct": 85.3,
+    "base_pct": 85.3
+  },
+  "code_scanning_alerts": [],
+  "dependabot_alerts": [],
+  "changed_files": ["README.md"]
+}

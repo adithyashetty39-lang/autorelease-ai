@@ -1,0 +1,40 @@
+{
+  "total_count": 3,
+  "jobs": [
+    {
+      "id": 9001,
+      "run_id": 442,
+      "name": "Test & Coverage",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-15T09:00:10Z",
+      "completed_at": "2026-09-15T09:01:02Z",
+      "html_url": "https://github.com/stormbreakers/stormbreakers-demo-shop/actions/runs/442/job/9001",
+      "steps": [
+        { "name": "Run tests with JUnit + coverage", "status": "completed", "conclusion": "success", "number": 4 }
+      ]
+    },
+    {
+      "id": 9002,
+      "run_id": 442,
+      "name": "CodeQL",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-15T09:00:10Z",
+      "completed_at": "2026-09-15T09:02:00Z",
+      "html_url": "https://github.com/stormbreakers/stormbreakers-demo-shop/actions/runs/442/job/9002",
+      "steps": []
+    },
+    {
+      "id": 9003,
+      "run_id": 442,
+      "name": "Secret Scan (gitleaks)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-15T09:00:10Z",
+      "completed_at": "2026-09-15T09:00:40Z",
+      "html_url": "https://github.com/stormbreakers/stormbreakers-demo-shop/actions/runs/442/job/9003",
+      "steps": []
+    }
+  ]
+}

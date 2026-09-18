@@ -1,0 +1,29 @@
+{
+  "_scenario": "S4 — real regression, no prior failure history (contrast with S2's flaky test). AutoRelease should name the suspect commit and file.",
+  "repo": "stormbreakers/stormbreakers-demo-shop",
+  "pr": 20,
+  "sha": "4444444444444444444444444444444444444d",
+  "ci": {
+    "conclusion": "failure",
+    "failed_tests": [
+      {
+        "test_name": "tests.test_pricing.test_apply_discount_half",
+        "error_message": "AssertionError: assert 110.0 == 50.0",
+        "job_id": 9201
+      },
+      {
+        "test_name": "tests.test_pricing.test_cart_total_with_discount",
+        "error_message": "AssertionError: assert 110.0 == 90.0",
+        "job_id": 9201
+      }
+    ]
+  },
+  "coverage": {
+    "head_pct": 85.1,
+    "base_pct": 85.3
+  },
+  "code_scanning_alerts": [],
+  "dependabot_alerts": [],
+  "changed_files": ["app/pricing.py"],
+  "_expected_test_history": "get_test_history for both tests should show 10/10 prior passes -- zero prior failures -- which is what should rule out flaky_test and drive new_regression. compare_commits(last_green_sha, head_sha) should show app/pricing.py's apply_discount() sign flip as the suspect change (see stormbreakers-demo-shop/scenarios/S4_regression_patch.md)."
+}

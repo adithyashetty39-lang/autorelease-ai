@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+<testsuite name="pytest" errors="0" failures="1" skipped="0" tests="18" time="1.732" timestamp="2026-09-12T09:00:10" hostname="runner">
+<testcase classname="tests.test_config" name="test_default_config" time="0.002" />
+<testcase classname="tests.test_config" name="test_load_store_config_merges_overrides" time="0.003" />
+<testcase classname="tests.test_config" name="test_load_store_config_rejects_non_mapping" time="0.002" />
+<testcase classname="tests.test_flaky" name="test_cart_total_under_load_flaky" time="0.105">
+<failure message="Failed: simulated flake: cart total computation exceeded expected tolerance under CI runner load (GITHUB_RUN_NUMBER=33)">tests/test_flaky.py:47: in test_cart_total_under_load_flaky
+    pytest.fail(
+Failed: simulated flake: cart total computation exceeded expected tolerance under CI runner load (GITHUB_RUN_NUMBER=33)</failure>
+</testcase>
+<testcase classname="tests.test_image_utils" name="test_make_thumbnail_shrinks_image" time="0.041" />
+<testcase classname="tests.test_main" name="test_health" time="0.006" />
+<testcase classname="tests.test_main" name="test_cart_total_endpoint" time="0.008" />
+<testcase classname="tests.test_main" name="test_cart_total_endpoint_rejects_negative_quantity" time="0.004" />
+<testcase classname="tests.test_pricing" name="test_line_total_basic" time="0.001" />
+<testcase classname="tests.test_pricing" name="test_line_total_rejects_negative_quantity" time="0.001" />
+<testcase classname="tests.test_pricing" name="test_apply_discount_zero" time="0.001" />
+<testcase classname="tests.test_pricing" name="test_apply_discount_half" time="0.001" />
+<testcase classname="tests.test_pricing" name="test_apply_discount_out_of_range" time="0.001" />
+<testcase classname="tests.test_pricing" name="test_cart_total_multiple_items" time="0.001" />
+<testcase classname="tests.test_pricing" name="test_cart_total_with_discount" time="0.001" />
+<testcase classname="tests.test_pricing" name="test_free_shipping_eligible_true" time="0.001" />
+<testcase classname="tests.test_pricing" name="test_free_shipping_eligible_false" time="0.001" />
+<testcase classname="tests.test_pricing" name="test_free_shipping_custom_threshold" time="0.001" />
+</testsuite>
+</testsuites>

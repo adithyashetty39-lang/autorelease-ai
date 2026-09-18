@@ -1,0 +1,68 @@
+[
+  {
+    "number": 3,
+    "state": "open",
+    "dependency": {
+      "package": { "ecosystem": "pip", "name": "pyyaml" },
+      "manifest_path": "requirements.txt",
+      "scope": "runtime"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-8q59-q68h-6hv4",
+      "cve_id": "CVE-2020-14343",
+      "summary": "PyYAML insufficiently restricted the ability to instantiate arbitrary Python objects",
+      "severity": "critical",
+      "cvss": { "score": 9.8, "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" },
+      "vulnerabilities": [
+        { "package": { "ecosystem": "pip", "name": "pyyaml" }, "vulnerable_version_range": "< 5.4", "first_patched_version": { "identifier": "5.4" } }
+      ],
+      "identifiers": [
+        { "type": "GHSA", "value": "GHSA-8q59-q68h-6hv4" },
+        { "type": "CVE", "value": "CVE-2020-14343" }
+      ],
+      "references": [{ "url": "https://github.com/advisories/GHSA-8q59-q68h-6hv4" }]
+    },
+    "security_vulnerability": {
+      "package": { "ecosystem": "pip", "name": "pyyaml" },
+      "severity": "critical",
+      "vulnerable_version_range": "< 5.4",
+      "first_patched_version": { "identifier": "5.4" }
+    },
+    "url": "https://api.github.com/repos/stormbreakers/stormbreakers-demo-shop/dependabot/alerts/3",
+    "html_url": "https://github.com/stormbreakers/stormbreakers-demo-shop/security/dependabot/3",
+    "created_at": "2026-09-10T08:00:00Z"
+  },
+  {
+    "number": 5,
+    "state": "open",
+    "dependency": {
+      "package": { "ecosystem": "pip", "name": "pillow" },
+      "manifest_path": "requirements.txt",
+      "scope": "runtime"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-8vj2-vxx3-667w",
+      "cve_id": "CVE-2022-22817",
+      "summary": "PIL.ImageMath.eval allows evaluation of arbitrary expressions",
+      "severity": "critical",
+      "cvss": { "score": 9.8, "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" },
+      "vulnerabilities": [
+        { "package": { "ecosystem": "pip", "name": "pillow" }, "vulnerable_version_range": "< 9.0.1", "first_patched_version": { "identifier": "9.0.1" } }
+      ],
+      "identifiers": [
+        { "type": "GHSA", "value": "GHSA-8vj2-vxx3-667w" },
+        { "type": "CVE", "value": "CVE-2022-22817" }
+      ],
+      "references": [{ "url": "https://github.com/advisories/GHSA-8vj2-vxx3-667w" }]
+    },
+    "security_vulnerability": {
+      "package": { "ecosystem": "pip", "name": "pillow" },
+      "severity": "critical",
+      "vulnerable_version_range": "< 9.0.1",
+      "first_patched_version": { "identifier": "9.0.1" }
+    },
+    "url": "https://api.github.com/repos/stormbreakers/stormbreakers-demo-shop/dependabot/alerts/5",
+    "html_url": "https://github.com/stormbreakers/stormbreakers-demo-shop/security/dependabot/5",
+    "created_at": "2026-09-10T08:00:00Z"
+  }
+]

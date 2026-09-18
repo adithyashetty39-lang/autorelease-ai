@@ -1,0 +1,60 @@
+<?xml version="1.0" ?>
+<!DOCTYPE coverage SYSTEM "http://cobertura.sourceforge.net/xml/coverage-04.dtd">
+<!-- coverage.py (pytest-cov) Cobertura output, --cov-report=xml:reports/coverage.xml -->
+<coverage line-rate="0.781" branch-rate="0" lines-covered="43" lines-valid="55" branches-covered="0" branches-valid="0" complexity="0" version="7.4.1" timestamp="1757930410000">
+    <sources>
+        <source>.</source>
+    </sources>
+    <packages>
+        <package name="app" line-rate="0.781" branch-rate="0" complexity="0">
+            <classes>
+                <class name="config.py" filename="app/config.py" complexity="0" line-rate="1.0" branch-rate="0">
+                    <methods/>
+                    <lines>
+                        <line number="9" hits="1"/>
+                        <line number="24" hits="1"/>
+                        <line number="29" hits="1"/>
+                        <line number="30" hits="1"/>
+                        <line number="31" hits="1"/>
+                        <line number="32" hits="1"/>
+                    </lines>
+                </class>
+                <class name="image_utils.py" filename="app/image_utils.py" complexity="0" line-rate="1.0" branch-rate="0">
+                    <methods/>
+                    <lines>
+                        <line number="12" hits="1"/>
+                        <line number="20" hits="1"/>
+                        <line number="21" hits="1"/>
+                        <line number="22" hits="1"/>
+                        <line number="23" hits="1"/>
+                        <line number="24" hits="1"/>
+                    </lines>
+                </class>
+                <class name="main.py" filename="app/main.py" complexity="0" line-rate="0.6" branch-rate="0">
+                    <methods/>
+                    <lines>
+                        <line number="10" hits="1"/>
+                        <line number="15" hits="1"/>
+                        <line number="18" hits="1"/>
+                        <line number="19" hits="0"/>
+                        <line number="20" hits="0"/>
+                    </lines>
+                </class>
+                <class name="pricing.py" filename="app/pricing.py" complexity="0" line-rate="1.0" branch-rate="0">
+                    <methods/>
+                    <lines>
+                        <line number="10" hits="1"/>
+                        <line number="11" hits="1"/>
+                        <line number="12" hits="1"/>
+                        <line number="17" hits="1"/>
+                        <line number="18" hits="1"/>
+                        <line number="19" hits="1"/>
+                        <line number="23" hits="1"/>
+                        <line number="24" hits="1"/>
+                        <line number="26" hits="1"/>
+                    </lines>
+                </class>
+            </classes>
+        </package>
+    </packages>
+</coverage>

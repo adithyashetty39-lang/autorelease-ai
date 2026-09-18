@@ -1,0 +1,44 @@
+{
+  "_scenario": "S3 — the wow moment. GitHub GREEN (CI/CodeQL/Dependabot all pass -- Dependabot doesn't fail a build by itself, it just lists alerts). AutoRelease should BLOCK ~55: reachable critical CVE + coverage drop.",
+  "repo": "stormbreakers/stormbreakers-demo-shop",
+  "pr": 17,
+  "sha": "a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+  "ci": {
+    "conclusion": "success",
+    "failed_tests": []
+  },
+  "coverage": {
+    "head_pct": 78.1,
+    "base_pct": 85.3
+  },
+  "code_scanning_alerts": [
+    {
+      "number": 8,
+      "rule_id": "py/insecure-yaml-load",
+      "tool": "CodeQL",
+      "severity": "critical",
+      "path": "app/config.py",
+      "line": 29,
+      "html_url": "https://github.com/stormbreakers/stormbreakers-demo-shop/security/code-scanning/8"
+    }
+  ],
+  "dependabot_alerts": [
+    {
+      "number": 3,
+      "package": "pyyaml",
+      "ghsa_id": "GHSA-8q59-q68h-6hv4",
+      "severity": "critical",
+      "vulnerable_version_range": "< 5.4",
+      "html_url": "https://github.com/stormbreakers/stormbreakers-demo-shop/security/dependabot/3"
+    },
+    {
+      "number": 5,
+      "package": "pillow",
+      "ghsa_id": "GHSA-8vj2-vxx3-667w",
+      "severity": "critical",
+      "vulnerable_version_range": "< 9.0.1",
+      "html_url": "https://github.com/stormbreakers/stormbreakers-demo-shop/security/dependabot/5"
+    }
+  ],
+  "changed_files": ["app/config.py"]
+}

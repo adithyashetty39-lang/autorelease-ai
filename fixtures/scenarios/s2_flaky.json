@@ -1,0 +1,35 @@
+{
+  "_scenario": "S2 — GitHub RED (flaky test failed this run) + one unreachable critical CVE. AutoRelease should approve/caveats ~90-95, contradicting GitHub's red.",
+  "repo": "stormbreakers/stormbreakers-demo-shop",
+  "pr": 11,
+  "sha": "2222222222222222222222222222222222222b",
+  "ci": {
+    "conclusion": "failure",
+    "failed_tests": [
+      {
+        "test_name": "tests.test_flaky.test_cart_total_under_load_flaky",
+        "error_message": "Failed: simulated flake: cart total computation exceeded expected tolerance under CI runner load (GITHUB_RUN_NUMBER=33)",
+        "job_id": 9101
+      }
+    ]
+  },
+  "coverage": {
+    "head_pct": 84.9,
+    "base_pct": 85.3
+  },
+  "code_scanning_alerts": [],
+  "dependabot_alerts": [
+    {
+      "number": 5,
+      "package": "pillow",
+      "ghsa_id": "GHSA-8vj2-vxx3-667w",
+      "severity": "critical",
+      "vulnerable_version_range": "< 9.0.1",
+      "html_url": "https://github.com/stormbreakers/stormbreakers-demo-shop/security/dependabot/5"
+    }
+  ],
+  "changed_files": ["app/pricing.py"],
+  "_expected_test_history_for_flaky_test": {
+    "note": "get_test_history(tests.test_flaky.test_cart_total_under_load_flaky, n=10) should show a real ~1-in-3 pass/fail pattern from seeded run history (see stormbreakers-demo-shop/tests/test_flaky.py) -- this is what should drive the flaky_test classification instead of new_regression."
+  }
+}

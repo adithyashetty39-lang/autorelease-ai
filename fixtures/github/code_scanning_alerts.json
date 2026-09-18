@@ -1,0 +1,39 @@
+[
+  {
+    "number": 8,
+    "rule": {
+      "id": "py/insecure-yaml-load",
+      "description": "Untrusted data passed to yaml.load or yaml.full_load",
+      "severity": "error",
+      "security_severity_level": "critical"
+    },
+    "tool": { "name": "CodeQL" },
+    "state": "open",
+    "most_recent_instance": {
+      "ref": "refs/heads/scenario/s3-reachable-cve",
+      "location": { "path": "app/config.py", "start_line": 29, "end_line": 29 },
+      "message": { "text": "This 'full_load' call could allow instantiation of arbitrary Python objects." }
+    },
+    "html_url": "https://github.com/stormbreakers/stormbreakers-demo-shop/security/code-scanning/8",
+    "created_at": "2026-09-15T09:01:40Z"
+  },
+  {
+    "number": 12,
+    "rule": {
+      "id": "generic-api-key",
+      "description": "Detected a Generic API Key, potentially exposing access to various services",
+      "severity": "error",
+      "security_severity_level": "critical"
+    },
+    "tool": { "name": "gitleaks" },
+    "state": "open",
+    "most_recent_instance": {
+      "ref": "refs/heads/scenario/s5-secret",
+      "location": { "path": "app/config.py", "start_line": 8, "end_line": 8 },
+      "message": { "text": "AWS Access Key ID pattern matched: AKIA[0-9A-Z]{16}" }
+    },
+    "html_url": "https://github.com/stormbreakers/stormbreakers-demo-shop/security/code-scanning/12",
+    "created_at": "2026-09-15T11:20:00Z",
+    "_scenario_note": "This alert only exists on the S5 branch -- see stormbreakers-demo-shop/scenarios/S5_secret_scenario.md. Not present on the S3 scenario this fixture set otherwise represents."
+  }
+]
