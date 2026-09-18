@@ -1,0 +1,62 @@
+name: autorelease-ai
+
+# Self-hosted n8n + Postgres, matching the PRD's "self-hosted is safer for a
+# live demo, no external dependency risk" (Phase 1, step 3). cloudflared
+# gives you a public HTTPS URL for the GitHub webhook without port-forwarding
+# your router -- run `docker compose logs cloudflared` after `up` to grab the
+# generated *.trycloudflare.com URL for the first run.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-n8n}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-n8n}
+      POSTGRES_DB: ${POSTGRES_DB:-n8n}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-n8n}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-n8n}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-n8n}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-n8n}
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678/}
+      GENERIC_TIMEZONE: ${TZ:-Asia/Kolkata}
+      N8N_BASIC_AUTH_ACTIVE: "false"
+      # Data Tables (n8n's built-in lightweight tables) need this on some
+      # versions -- if your n8n build doesn't have Data Tables, use the
+      # Postgres node directly against the `n8n` database instead for
+      # test_history / coverage_history / run_records (see BUILD_GUIDE.md).
+      N8N_RUNNERS_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --url http://n8n:5678
+    depends_on:
+      - n8n
+
+volumes:
+  db_data:
+  n8n_data:

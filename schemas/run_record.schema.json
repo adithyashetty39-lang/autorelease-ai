@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://stormbreakers/autorelease-ai/run_record.schema.json",
+  "title": "RunRecord",
+  "description": "The full persisted record of one validation run -- what the report page renders, what gets written to the audit sheet, and what the eval harness compares expected vs actual against.",
+  "type": "object",
+  "required": ["run_id", "repo", "sha", "findings", "trace", "gates", "deductions", "score", "band", "decision", "summary"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "repo": { "type": "string", "description": "owner/name" },
+    "pr": { "type": ["integer", "null"] },
+    "sha": { "type": "string" },
+    "triggered_at": { "type": "string", "format": "date-time" },
+    "evidence_bundle": {
+      "type": "object",
+      "description": "Raw collector output -- CI status, coverage, code scanning alerts, dependabot alerts, changed files. Kept for audit/replay; not re-validated by this schema, see fixtures/github/ for shape examples."
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "finding.schema.json" }
+    },
+    "trace": {
+      "type": "array",
+      "items": { "$ref": "trace_step.schema.json" }
+    },
+    "gates": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["BLOCK", "MANUAL_REVIEW"] },
+      "description": "Non-empty means the band computed from the score is overridden -- see scoring/scorer.js applyGates()."
+    },
+    "deductions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["finding_id", "category", "amount"],
+        "properties": {
+          "finding_id": { "type": "string" },
+          "category": { "type": "string" },
+          "amount": { "type": "number" },
+          "capped": { "type": "boolean", "description": "true if this deduction was reduced by a category cap" }
+        }
+      }
+    },
+    "correlations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "finding_ids": { "type": "array", "items": { "type": "string" } },
+          "shared_files": { "type": "array", "items": { "type": "string" } },
+          "note": { "type": "string" }
+        }
+      },
+      "description": "Findings sharing a file, e.g. a regression and a reachable CVE in the same file -- 'same blast radius'."
+    },
+    "score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "band": { "type": "string", "enum": ["approve", "approve_with_caveats", "block"] },
+    "decision": {
+      "type": "string",
+      "enum": ["approve", "approve_with_caveats", "block", "manual_review"],
+      "description": "band as adjusted by gates -- this is the authoritative outcome shown in the report, NOT `band` alone."
+    },
+    "summary": { "type": "string", "description": "LLM-written narrative, must only restate numbers present in findings/deductions/score." },
+    "approver": { "type": ["string", "null"] },
+    "approval_comment": { "type": ["string", "null"] },
+    "decided_at": { "type": ["string", "null"], "format": "date-time" },
+    "outcome": {
+      "type": ["string", "null"],
+      "enum": [null, "no_incident", "incident", "unknown"],
+      "description": "PRD 6.3 feedback loop -- filled in later, manually or via the one follow-up Slack ping."
+    }
+  }
+}

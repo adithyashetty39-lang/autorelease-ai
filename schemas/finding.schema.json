@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://stormbreakers/autorelease-ai/finding.schema.json",
+  "title": "Finding",
+  "description": "The structured output every specialist agent (Build & Test, Security) must return, one per issue found. This is the contract the Structured Output Parser in n8n validates against. category must match a key in config/scoring.json so the scorer can look up its deduction/cap/gate.",
+  "type": "object",
+  "required": ["id", "agent", "category", "title", "classification", "confidence", "evidence", "reasoning"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^F-[0-9]+$",
+      "description": "Unique within one run, assigned by the agent (F-1, F-2, ...)"
+    },
+    "agent": {
+      "type": "string",
+      "enum": ["build_test", "security"]
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "new_regression",
+        "flaky_test",
+        "infra_failure",
+        "coverage_drop",
+        "reachable_critical_cve",
+        "reachable_high_cve",
+        "unreachable_critical_cve",
+        "unreachable_high_cve",
+        "secret_detected",
+        "code_scanning_alert"
+      ],
+      "description": "Must match a category key in config/scoring.json"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "One-line, human-readable. Shown as the headline in the report."
+    },
+    "classification": {
+      "type": "string",
+      "description": "Free-text label the agent chose within its category (e.g. 'flaky', 'regression', 'reachable', 'unreachable'). Kept separate from category so the report can show the agent's own words."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "PRD 6.1: low confidence on a finding with a high-weight category (see scoring.json manual_review_categories) forces the run into MANUAL_REVIEW regardless of score."
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["label", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "url": { "type": "string", "format": "uri" },
+          "source_tool": {
+            "type": "string",
+            "description": "Which tool call produced this evidence -- used by the validation layer to drop any evidence URL that did NOT come from an actual tool result, so the model can't fabricate links."
+          }
+        }
+      },
+      "description": "At least one evidence item is required -- a finding with zero evidence should not exist; that's what confidence:low + no tool result should produce instead (see prompts/*.md 'never guess without a tool result')."
+    },
+    "files": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Repo-relative file paths this finding concerns. Used by the Release Manager's correlation step to link findings that touch the same file."
+    },
+    "suspect_commit": {
+      "type": ["string", "null"],
+      "description": "Build & Test Agent only, for new_regression: the sha it believes introduced the failure, from compare_commits."
+    },
+    "reasoning": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "description": "One paragraph, plain language, citing which tool results led to this classification. This is what renders in the agent investigation timeline."
+    },
+    "changed_in_pr": {
+      "type": "boolean",
+      "description": "Security Agent: whether `files` overlaps the PR's changed files. Context only -- per the PRD Q2 answer, reachability itself is NOT limited to changed files (that was the false-negative bug in the original PRD; see autorelease-ai/README.md 'Deviations from the PRD')."
+    }
+  }
+}

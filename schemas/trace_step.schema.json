@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://stormbreakers/autorelease-ai/trace_step.schema.json",
+  "title": "TraceStep",
+  "description": "One tool call an agent made, captured from n8n AI Agent node's 'Return Intermediate Steps' output. This is what renders as the agent investigation timeline in the report -- the clearest evidence to judges that the agent is deciding what to investigate, not running a fixed script.",
+  "type": "object",
+  "required": ["agent", "step", "tool", "input_summary", "output_summary"],
+  "additionalProperties": false,
+  "properties": {
+    "agent": { "type": "string", "enum": ["build_test", "security"] },
+    "step": { "type": "integer", "minimum": 1, "description": "1-indexed order within this agent's investigation" },
+    "tool": {
+      "type": "string",
+      "enum": [
+        "get_test_history",
+        "get_job_logs",
+        "compare_commits",
+        "get_advisory",
+        "search_imports",
+        "search_symbol_usage"
+      ]
+    },
+    "input_summary": { "type": "string", "maxLength": 200, "description": "e.g. 'test_apply_discount_half, n=10'" },
+    "output_summary": { "type": "string", "maxLength": 300, "description": "e.g. '3/10 failures, last 5 all pass'" },
+    "decision": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "What the agent concluded FROM this step, if anything -- e.g. 'no unchanged-code failures found -> treating as regression, escalating to compare_commits'. Optional on intermediate steps, expected on the last step for a finding."
+    }
+  }
+}

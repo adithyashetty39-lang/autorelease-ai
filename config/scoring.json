@@ -1,0 +1,39 @@
+{
+  "_comment": "PRD 6.2: this is the externalized, team-adjustable policy -- scorer.js reads ONLY this file, never hardcodes a number. Mirror this into a Google Sheet tab if you want to demo a live weight change without touching the workflow (see autorelease-ai/README.md).",
+
+  "starting_score": 100,
+  "min_score": 0,
+  "max_score": 100,
+
+  "bands": [
+    { "min": 85, "max": 100, "band": "approve" },
+    { "min": 60, "max": 84, "band": "approve_with_caveats" },
+    { "min": 0, "max": 59, "band": "block" }
+  ],
+
+  "gate_categories": {
+    "secret_detected": "BLOCK"
+  },
+
+  "manual_review_min_weight": 35,
+  "_manual_review_comment": "PRD 6.1: any finding with |deduction| >= this AND confidence:low forces decision=manual_review, overriding the computed band. Checked per-finding before deductions are summed.",
+
+  "categories": {
+    "new_regression": { "deduction": 40, "cap": 60, "per_finding": true },
+    "reachable_critical_cve": { "deduction": 35, "cap": null, "per_finding": true },
+    "reachable_high_cve": { "deduction": 15, "cap": 30, "per_finding": true },
+    "coverage_drop": { "deduction": 10, "cap": 10, "per_finding": true },
+    "flaky_test": { "deduction": 5, "cap": 15, "per_finding": true },
+    "infra_failure": { "deduction": 0, "cap": 0, "per_finding": true },
+    "unreachable_critical_cve": { "deduction": 0, "cap": 0, "per_finding": true },
+    "unreachable_high_cve": { "deduction": 0, "cap": 0, "per_finding": true },
+    "code_scanning_alert": { "deduction": 10, "cap": 20, "per_finding": true },
+    "secret_detected": { "deduction": 0, "cap": 0, "per_finding": true, "_note": "score deduction is irrelevant -- this category is a BLOCK gate above, which overrides the band entirely regardless of score" }
+  },
+
+  "_category_notes": {
+    "infra_failure": "0 deduction on purpose -- an infra flake (runner timeout, network blip) is not evidence about the code. It's still shown in the report so the engineer sees it, just not scored.",
+    "unreachable_critical_cve": "0 deduction on purpose -- PRD Q2: failure mode should be over-flagging safe code, not under-flagging dangerous code, and an unreachable finding is NOT hidden from the report even at 0 impact.",
+    "code_scanning_alert": "CodeQL findings that aren't already covered by the CVE categories (e.g. a code-quality/security-pattern alert unrelated to a dependency)."
+  }
+}
