@@ -13,7 +13,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://api.github.com/repos/OWNER/REPO/git/trees/{{ $json.sha }}?recursive=1",
+        "url": "=https://api.github.com/repos/{{ $json.repo || 'adithyashetty39-lang/stormbreakers-demo' }}/git/trees/{{ $json.sha }}?recursive=1",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {}
@@ -38,7 +38,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://raw.githubusercontent.com/OWNER/REPO/{{ $('When called as a tool').first().json.sha }}/{{ $json.path }}",
+        "url": "=https://raw.githubusercontent.com/{{ $('When called as a tool').first().json.repo || 'adithyashetty39-lang/stormbreakers-demo' }}/{{ $('When called as a tool').first().json.sha }}/{{ $json.path }}",
         "options": { "response": { "response": { "responseFormat": "text" } } }
       },
       "id": "http-file",
