@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AutoRelease AI — stormbreakers/stormbreakers-demo-shop #17</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 24px 16px 64px; background: #0b0f14; color: #e6edf3; }
+  h1, h2, h3, h4 { line-height: 1.25; }
+  .muted { color: #8b949e; }
+  .score-gauge { font-size: 64px; font-weight: 800; }
+  .band-strip { display: flex; gap: 12px; align-items: center; margin: 12px 0 24px; flex-wrap: wrap; }
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .badge-gate { background: #f85149; color: #fff; }
+  .badge-none { background: #21262d; color: #8b949e; }
+  .decision-approve { background: #2ea043; color: #fff; }
+  .decision-caveats { background: #d29922; color: #0b0f14; }
+  .decision-block, .decision-review { background: #f85149; color: #fff; }
+  .decision-pill { padding: 8px 16px; border-radius: 8px; font-weight: 700; display: inline-block; }
+  .contrast-strip { display: flex; gap: 16px; margin: 16px 0; }
+  .contrast-box { flex: 1; padding: 12px 16px; border-radius: 8px; background: #161b22; border: 1px solid #30363d; }
+  table.findings-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  .findings-table th, .findings-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #30363d; font-size: 14px; }
+  .findings-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .capped-tag { color: #d29922; font-size: 11px; }
+  code { background: #161b22; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  a { color: #58a6ff; }
+  .trace-agent { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
+  .trace-list { list-style: none; padding: 0; margin: 8px 0 0; }
+  .trace-step { padding: 6px 0; border-top: 1px dashed #30363d; }
+  .trace-step:first-child { border-top: none; }
+  .trace-icon { margin-right: 6px; }
+  .trace-decision { margin: 4px 0 0 24px; padding: 6px 10px; background: #0d1117; border-left: 3px solid #58a6ff; font-size: 13px; }
+  .actions { display: flex; gap: 12px; margin-top: 32px; }
+  button { font-size: 16px; font-weight: 700; padding: 12px 24px; border-radius: 8px; border: none; cursor: pointer; }
+  .btn-approve { background: #2ea043; color: #fff; }
+  .btn-reject { background: #f85149; color: #fff; }
+  .decided-banner { padding: 12px 16px; border-radius: 8px; background: #161b22; border: 1px solid #30363d; margin-top: 24px; }
+  .summary-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin: 16px 0; }
+</style>
+</head>
+<body>
+  <p class="muted">AutoRelease AI · stormbreakers/stormbreakers-demo-shop · PR #17 · <code>a1b2c3d4e5</code></p>
+
+  <div class="band-strip">
+    <div class="score-gauge">55<span class="muted" style="font-size:24px">/100</span></div>
+    <span class="decision-pill decision-block">BLOCK</span>
+    <span class="badge badge-none">no gates triggered</span>
+  </div>
+
+  <div class="summary-box">GitHub Actions, CodeQL, and Dependabot all show green on this PR. AutoRelease AI blocks it anyway: the new code in app/config.py calls yaml.full_load() on pyyaml 5.3.1, which is a critical, directly-reachable CVE (GHSA-8q59-q68h-6hv4). Test coverage also dropped 7.2% on this change.</div>
+
+  <h3>Itemized findings</h3>
+  <table class="findings-table">
+    <thead><tr><th>Finding</th><th>Category</th><th>Confidence</th><th>Deduction</th><th>Evidence</th></tr></thead>
+    <tbody><tr>
+        <td>PyYAML CVE-2020-14343 reachable via yaml.full_load in app/config.py</td>
+        <td><code>reachable_critical_cve</code></td>
+        <td>high</td>
+        <td class="num">-35</td>
+        <td><a href="https://github.com/stormbreakers/stormbreakers-demo-shop/blob/a1b2c3d/app/config.py#L29" target="_blank" rel="noopener">app/config.py:29 calls yaml.full_load</a>, <a href="https://github.com/stormbreakers/stormbreakers-demo-shop/security/dependabot/3" target="_blank" rel="noopener">Dependabot alert #3 (GHSA-8q59-q68h-6hv4)</a></td>
+      </tr>
+<tr>
+        <td>Coverage dropped 7.2% vs last green main</td>
+        <td><code>coverage_drop</code></td>
+        <td>high</td>
+        <td class="num">-10</td>
+        <td><a href="https://github.com/stormbreakers/stormbreakers-demo-shop/actions/runs/442" target="_blank" rel="noopener">coverage.xml (this run): 78.1%</a>, <a href="https://github.com/stormbreakers/stormbreakers-demo-shop/actions/runs/438" target="_blank" rel="noopener">coverage.xml (base main): 85.3%</a></td>
+      </tr>
+<tr>
+        <td>Pillow CVE-2022-22817 present but unreachable</td>
+        <td><code>unreachable_critical_cve</code></td>
+        <td>high</td>
+        <td class="num">0</td>
+        <td><a href="https://github.com/stormbreakers/stormbreakers-demo-shop/blob/a1b2c3d/app/image_utils.py" target="_blank" rel="noopener">app/image_utils.py imports PIL, no ImageMath.eval call site found</a></td>
+      </tr></tbody>
+  </table>
+  <div class="correlations">
+    <h4>Linked findings</h4>
+    <ul><li>F-1 (reachable_critical_cve) and F-2 (coverage_drop) both touch app/config.py -- same blast radius.</li></ul>
+  </div>
+
+  <h3>Agent investigation timeline</h3>
+  <div class="trace-agent">
+        <h4>security agent — 5 tool calls</h4>
+        <ol class="trace-list"><li class="trace-step">
+            <span class="trace-icon">🔎</span>
+            <strong>search_imports</strong>
+            <span class="muted">(package=pyyaml)</span>
+            &rarr; imported in app/config.py:9
+            
+          </li>
+<li class="trace-step">
+            <span class="trace-icon">🛡️</span>
+            <strong>get_advisory</strong>
+            <span class="muted">(ghsa=GHSA-8q59-q68h-6hv4)</span>
+            &rarr; critical, vulnerable_functions=[yaml.full_load, yaml.unsafe_load]
+            
+          </li>
+<li class="trace-step">
+            <span class="trace-icon">🎯</span>
+            <strong>search_symbol_usage</strong>
+            <span class="muted">(symbols=[yaml.full_load, yaml.unsafe_load])</span>
+            &rarr; call site found: app/config.py:29
+            <div class="trace-decision">classified reachable, confidence high -&gt; reachable_critical_cve</div>
+          </li>
+<li class="trace-step">
+            <span class="trace-icon">🔎</span>
+            <strong>search_imports</strong>
+            <span class="muted">(package=pillow)</span>
+            &rarr; imported in app/image_utils.py:12
+            
+          </li>
+<li class="trace-step">
+            <span class="trace-icon">🎯</span>
+            <strong>search_symbol_usage</strong>
+            <span class="muted">(symbols=[PIL.ImageMath.eval])</span>
+            &rarr; no call sites found in repo
+            <div class="trace-decision">classified unreachable, confidence high -&gt; 0 score impact</div>
+          </li></ol>
+      </div>
+<div class="trace-agent">
+        <h4>build_test agent — 2 tool calls</h4>
+        <ol class="trace-list"><li class="trace-step">
+            <span class="trace-icon">🕘</span>
+            <strong>get_test_history</strong>
+            <span class="muted">(all tests, n=10)</span>
+            &rarr; all currently passing, no failures this run
+            
+          </li>
+<li class="trace-step">
+            <span class="trace-icon">🔀</span>
+            <strong>compare_commits</strong>
+            <span class="muted">(base=438sha head=a1b2c3d)</span>
+            &rarr; coverage.xml diff: 85.3% -&gt; 78.1%
+            <div class="trace-decision">coverage_drop &gt; 5% threshold -&gt; flagged</div>
+          </li></ol>
+      </div>
+
+  <div class="actions">
+          <form method="post" action="https://n8n.example/webhook-waiting/demo-s3" style="display:inline">
+            <input type="hidden" name="decision" value="approve" />
+            <button type="submit" class="btn-approve">Approve</button>
+          </form>
+          <form method="post" action="https://n8n.example/webhook-waiting/demo-s3" style="display:inline">
+            <input type="hidden" name="decision" value="reject" />
+            <button type="submit" class="btn-reject">Reject</button>
+          </form>
+        </div>
+</body>
+</html>
