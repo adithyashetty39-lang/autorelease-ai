@@ -1,0 +1,128 @@
+{
+  "_readme": "12 labeled scenarios. `evidence_bundle` is what the agents actually receive (fixtures/scenarios/*.json). `expected_findings` is what a CORRECTLY functioning agent pair should produce -- hand-derived from the evidence + prompts/*.md rules, not from a live LLM run. `expected` is the scoreRun() output when scorer.js is fed expected_findings -- eval/score_eval.test.js asserts this automatically (it's deterministic code, no LLM needed). During Phase 6, run the REAL agents against each evidence_bundle and diff their actual findings against expected_findings by hand -- that comparison is eval/run_eval.md's job, and it's the one part of this file that genuinely needs a live n8n+Gemini run, see that doc for why.",
+
+  "cases": [
+    {
+      "id": "S1",
+      "name": "clean change",
+      "evidence_bundle_file": "fixtures/scenarios/s1_clean.json",
+      "expected_findings": [],
+      "expected": { "score": 100, "band": "approve", "decision": "approve" }
+    },
+    {
+      "id": "S2",
+      "name": "flaky test + unreachable critical CVE (GitHub red, AutoRelease approves)",
+      "evidence_bundle_file": "fixtures/scenarios/s2_flaky.json",
+      "expected_findings": [
+        { "id": "F-1", "agent": "build_test", "category": "flaky_test", "confidence": "high" },
+        { "id": "F-2", "agent": "security", "category": "unreachable_critical_cve", "confidence": "high" }
+      ],
+      "expected": { "score": 95, "band": "approve", "decision": "approve" }
+    },
+    {
+      "id": "S3",
+      "name": "reachable critical CVE + coverage drop (GitHub green, AutoRelease blocks -- the demo centerpiece)",
+      "evidence_bundle_file": "fixtures/scenarios/s3_reachable_cve.json",
+      "expected_findings": [
+        { "id": "F-1", "agent": "security", "category": "reachable_critical_cve", "confidence": "high" },
+        { "id": "F-2", "agent": "build_test", "category": "coverage_drop", "confidence": "high" },
+        { "id": "F-3", "agent": "security", "category": "unreachable_critical_cve", "confidence": "high" }
+      ],
+      "expected": { "score": 55, "band": "block", "decision": "block" }
+    },
+    {
+      "id": "S4",
+      "name": "real regression, suspect commit named",
+      "evidence_bundle_file": "fixtures/scenarios/s4_regression.json",
+      "expected_findings": [
+        { "id": "F-1", "agent": "build_test", "category": "new_regression", "confidence": "high" },
+        { "id": "F-2", "agent": "build_test", "category": "new_regression", "confidence": "high" }
+      ],
+      "expected_findings_note": "two failing tests from the same underlying bug -> two new_regression findings, cap kicks in on the second (see cap test in scoring/scorer.test.js)",
+      "expected": { "score": 40, "band": "block", "decision": "block" }
+    },
+    {
+      "id": "S5",
+      "name": "secret in diff -- BLOCK gate overrides score",
+      "evidence_bundle_file": "fixtures/scenarios/s5_secret.json",
+      "expected_findings": [
+        { "id": "F-1", "agent": "security", "category": "secret_detected", "confidence": "high" }
+      ],
+      "expected": { "score": 100, "band": "approve", "decision": "block", "gates": ["BLOCK"] },
+      "note": "score/band alone would say approve -- decision must still be block. This is the single most important row in this table to get right."
+    },
+    {
+      "id": "V1",
+      "name": "variant: flaky test that has now become a genuine regression (same test, but this run's failure is NOT in its historical pattern)",
+      "evidence_bundle_file": null,
+      "expected_findings": [
+        { "id": "F-1", "agent": "build_test", "category": "new_regression", "confidence": "medium" }
+      ],
+      "expected": { "score": 60, "band": "approve_with_caveats", "decision": "approve_with_caveats" },
+      "note": "Build during Phase 6: same test as test_flaky.py but failing on a run_number NOT divisible by 3 (i.e. off-pattern) -- tests whether the agent correctly distinguishes 'matches known flake pattern' from 'coincidentally the same test, different cause'. Genuinely hard case -- expect confidence:medium, not high."
+    },
+    {
+      "id": "V2",
+      "name": "variant: import without any symbol usage anywhere (fully unused dependency)",
+      "evidence_bundle_file": null,
+      "expected_findings": [
+        { "id": "F-1", "agent": "security", "category": "unreachable_high_cve", "confidence": "high" }
+      ],
+      "expected": { "score": 100, "band": "approve", "decision": "approve" },
+      "note": "Build during Phase 6: a Dependabot alert for a package NOT imported anywhere -- tests the 'not imported at all' branch of prompts/security_agent.md's reachability rule, separate from S2/S3's 'imported but function unused' case."
+    },
+    {
+      "id": "V3",
+      "name": "variant: infra timeout (runner network failure, not a code issue)",
+      "evidence_bundle_file": null,
+      "expected_findings": [
+        { "id": "F-1", "agent": "build_test", "category": "infra_failure", "confidence": "high" }
+      ],
+      "expected": { "score": 100, "band": "approve", "decision": "approve" },
+      "note": "Build during Phase 6: a job log containing a network/timeout-shaped error, no assertion failure -- tests infra_failure classification, 0 score impact by design."
+    },
+    {
+      "id": "V4",
+      "name": "variant: agent output fails validation twice -> synthetic low-confidence finding, forced manual review",
+      "evidence_bundle_file": null,
+      "expected_findings": [
+        { "id": "F-0", "agent": "security", "category": "reachable_critical_cve", "confidence": "low" }
+      ],
+      "expected": { "decision": "manual_review", "gates": ["MANUAL_REVIEW"] },
+      "note": "Simulate during Phase 6 by forcing a schema-invalid agent response twice (e.g. temporarily break the output parser) and confirming validation/validateFinding.js's syntheticLowConfidenceFinding() fires and routes correctly -- this proves the 'never fail silently into an approval' rule actually holds."
+    },
+    {
+      "id": "V5",
+      "name": "variant: reachable critical CVE with low confidence (import-level only, no function list)",
+      "evidence_bundle_file": null,
+      "expected_findings": [
+        { "id": "F-1", "agent": "security", "category": "reachable_critical_cve", "confidence": "medium" }
+      ],
+      "expected": { "band": "approve_with_caveats", "decision": "approve_with_caveats" },
+      "note": "Build during Phase 6: a CVE whose advisory lists no vulnerable_functions and has no vulnerable_functions.json fallback entry -- tests prompts/security_agent.md step 4 (default reachable, confidence medium, NOT low -- so this should NOT trigger manual_review; contrast with V4)."
+    },
+    {
+      "id": "V6",
+      "name": "variant: multiple flaky tests hit the cap",
+      "evidence_bundle_file": null,
+      "expected_findings": [
+        { "id": "F-1", "agent": "build_test", "category": "flaky_test", "confidence": "high" },
+        { "id": "F-2", "agent": "build_test", "category": "flaky_test", "confidence": "high" },
+        { "id": "F-3", "agent": "build_test", "category": "flaky_test", "confidence": "high" },
+        { "id": "F-4", "agent": "build_test", "category": "flaky_test", "confidence": "high" }
+      ],
+      "expected": { "score": 85, "band": "approve", "decision": "approve" },
+      "note": "Already covered end-to-end in scoring/scorer.test.js ('flaky_test cap' test) -- listed here for completeness of the 12-case table judges may ask to see, not because it needs a fresh evidence bundle."
+    },
+    {
+      "id": "V7",
+      "name": "variant: code_scanning_alert unrelated to any CVE (pure CodeQL quality/security-pattern finding)",
+      "evidence_bundle_file": null,
+      "expected_findings": [
+        { "id": "F-1", "agent": "security", "category": "code_scanning_alert", "confidence": "high" }
+      ],
+      "expected": { "score": 90, "band": "approve", "decision": "approve" },
+      "note": "Build during Phase 6: a CodeQL alert not tied to a Dependabot package (e.g. a SQL-injection-shaped pattern alert) -- tests the code_scanning_alert category path distinct from secret_detected and the CVE categories."
+    }
+  ]
+}
