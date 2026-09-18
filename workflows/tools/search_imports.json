@@ -1,0 +1,70 @@
+{
+  "_comment": "Tool: search_imports(package, sha) -> [{file, line, statement}]. Walks the repo tree at `sha`, fetches every .py file, and regex-matches `import X` / `from X import ...`. Requires a 'GitHub PAT' generic Header Auth credential (Authorization: Bearer <PAT>) attached to both HTTP Request nodes -- create it in n8n's Credentials UI first, then select it on each node (the credential name/id is NOT set in this JSON, since credentials aren't portable across n8n instances). Replace OWNER/REPO in the first HTTP Request's URL. Test standalone with input {\"package\": \"pyyaml\", \"sha\": \"<your demo repo's head sha>\"}.",
+  "name": "AutoRelease Tool - search_imports",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-1",
+      "name": "When called as a tool",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/OWNER/REPO/git/trees/{{ $json.sha }}?recursive=1",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "http-tree",
+      "name": "Get repo tree",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Filter to .py files only, cap count so we don't fetch hundreds of files\n// in a large repo -- fine for this hackathon's ~15-file demo app, revisit\n// if the demo repo grows.\nconst tree = $json.tree || [];\nconst pyFiles = tree.filter((t) => t.type === 'blob' && t.path.endsWith('.py')).slice(0, 100);\nreturn pyFiles.map((f) => ({ json: { path: f.path, blob_sha: f.sha } }));"
+      },
+      "id": "code-filter",
+      "name": "Filter .py files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://raw.githubusercontent.com/OWNER/REPO/{{ $('When called as a tool').first().json.sha }}/{{ $json.path }}",
+        "options": { "response": { "response": { "responseFormat": "text" } } }
+      },
+      "id": "http-file",
+      "name": "Fetch file content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Regex-match import statements for the target package. Deliberately\n// simple string matching (PRD: \"simple string/import match is fine for\n// MVP\") -- covers `import X`, `import X as y`, `from X import ...`,\n// `from X.sub import ...`. Skips docstrings/comments -- see\n// search_symbol_usage.json's header comment for why that skip exists\n// (found by testing against the real demo repo, not theoretical).\nconst pkg = $('When called as a tool').first().json.package;\nconst escaped = pkg.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\nconst importRe = new RegExp(`^\\\\s*(import\\\\s+${escaped}\\\\b|from\\\\s+${escaped}(\\\\.[\\\\w.]+)?\\\\s+import\\\\b)`);\n\nconst results = [];\nfor (const item of $input.all()) {\n  const path = item.json.path || (item.json.__path || '');\n  const content = typeof item.json === 'string' ? item.json : (item.json.data || item.json.body || '');\n  // n8n's HTTP Request node puts plain-text bodies in different fields\n  // depending on version -- if this comes back empty, check the actual\n  // output shape in the editor and adjust the field name above.\n  const lines = String(content).split('\\n');\n  let inDocstring = false;\n  lines.forEach((rawLine, i) => {\n    const trimmed = rawLine.trim();\n    const wasInDocstring = inDocstring;\n    const tripleQuoteCount = (trimmed.match(/\"\"\"|'''/g) || []).length;\n    const isOneLineDocstring = tripleQuoteCount >= 2 && (trimmed.startsWith('\"\"\"') || trimmed.startsWith(\"'''\"));\n    if (tripleQuoteCount % 2 === 1) inDocstring = !inDocstring;\n    if (wasInDocstring || isOneLineDocstring || trimmed.startsWith('#')) return;\n    if (importRe.test(rawLine)) {\n      results.push({ file: path, line: i + 1, statement: trimmed });\n    }\n  });\n}\nreturn [{ json: { package: pkg, matches: results } }];"
+      },
+      "id": "code-search",
+      "name": "Search for import statements",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 0]
+    }
+  ],
+  "connections": {
+    "When called as a tool": { "main": [[{ "node": "Get repo tree", "type": "main", "index": 0 }]] },
+    "Get repo tree": { "main": [[{ "node": "Filter .py files", "type": "main", "index": 0 }]] },
+    "Filter .py files": { "main": [[{ "node": "Fetch file content", "type": "main", "index": 0 }]] },
+    "Fetch file content": { "main": [[{ "node": "Search for import statements", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

@@ -1,0 +1,61 @@
+{
+  "_comment": "Tool: get_advisory(ghsa_id) -> { ghsa_id, cve_id, severity, cvss, summary, vulnerable_functions[], source }. Fetches OSV.dev (no auth, public) for severity/cvss/summary, and the demo repo's own security/vulnerable_functions.json (raw.githubusercontent.com, no auth on a public repo) for function-level data -- see prompts/security_agent.md and stormbreakers-demo-shop/security/vulnerable_functions.json for why the fallback file exists. Import into n8n, then in the 'Fetch fallback config' node's URL, replace OWNER/REPO with your actual demo repo path once it exists. Test standalone with input {\"ghsa_id\": \"GHSA-8q59-q68h-6hv4\"} before wiring into the Security Agent.",
+  "name": "AutoRelease Tool - get_advisory",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-1",
+      "name": "When called as a tool",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.osv.dev/v1/vulns/{{ $json.ghsa_id }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "http-osv",
+      "name": "Fetch OSV.dev advisory",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://raw.githubusercontent.com/OWNER/REPO/main/security/vulnerable_functions.json",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "http-fallback",
+      "name": "Fetch fallback config",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 180]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Merge OSV (severity/cvss/summary) with the repo's vulnerable_functions.json\n// fallback (function-level reachability data). See prompts/security_agent.md.\nconst ghsaId = $('When called as a tool').first().json.ghsa_id;\nconst osv = $('Fetch OSV.dev advisory').first().json || {};\nconst fallbackRaw = $('Fetch fallback config').first().json || {};\n\nconst severity = (osv.severity && osv.severity[0] && osv.severity[0].score) ? osv.severity[0].score\n  : (osv.database_specific && osv.database_specific.severity) || null;\n\nlet vulnerableFunctions = [];\nlet source = 'none';\nconst packages = fallbackRaw.packages || {};\nfor (const pkgName of Object.keys(packages)) {\n  const entry = packages[pkgName];\n  if (entry.ghsa_id === ghsaId) {\n    vulnerableFunctions = entry.vulnerable_functions || [];\n    source = 'config';\n    break;\n  }\n}\n\nreturn [{\n  json: {\n    ghsa_id: ghsaId,\n    cve_id: (osv.aliases || []).find((a) => a.startsWith('CVE-')) || null,\n    severity: severity,\n    summary: osv.summary || osv.details || null,\n    vulnerable_functions: vulnerableFunctions,\n    source: source,\n    osv_url: `https://osv.dev/vulnerability/${ghsaId}`\n  }\n}];"
+      },
+      "id": "code-merge",
+      "name": "Merge advisory data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 90]
+    }
+  ],
+  "connections": {
+    "When called as a tool": {
+      "main": [[
+        { "node": "Fetch OSV.dev advisory", "type": "main", "index": 0 },
+        { "node": "Fetch fallback config", "type": "main", "index": 0 }
+      ]]
+    },
+    "Fetch OSV.dev advisory": { "main": [[{ "node": "Merge advisory data", "type": "main", "index": 0 }]] },
+    "Fetch fallback config": { "main": [[{ "node": "Merge advisory data", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}
