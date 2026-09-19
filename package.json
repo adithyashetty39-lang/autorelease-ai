@@ -2,9 +2,9 @@
   "name": "autorelease-ai",
   "version": "0.1.0",
   "private": true,
-  "description": "Scoring, schema validation, and report rendering for AutoRelease AI -- the n8n workflows are the orchestration layer, this is the tested logic they call into (see scoring/scorer.js header comment).",
+  "description": "Tested logic modules for AutoRelease AI. The live release decision runs in the n8n workflows under workflows/ (see README, What is live).",
   "scripts": {
-    "test": "node --test scoring/*.test.js validation/*.test.js report/*.test.js eval/*.test.js"
+    "test": "node --test scoring/*.test.js validation/*.test.js report/*.test.js eval/*.test.js semantic/*.test.js"
   },
   "engines": {
     "node": ">=18"

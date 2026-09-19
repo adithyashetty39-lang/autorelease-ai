@@ -2,6 +2,119 @@
 
 Team Stormbreakers · DSU DevHack 3.0 · Agentic AI theme
 
+An agentic release gate for GitHub pull requests. It investigates CI results,
+test history, the app's real behaviour and security alerts, then posts one
+evidence-backed verdict on the PR — **APPROVE**, **REVIEW** or **BLOCK** — with
+plain-code rules that the AI cannot overrule.
+
+**The AI investigates and explains. Written rules decide.** The agent can be
+wrong; it cannot be wrong alone.
+
+## What's live
+
+Everything below runs today on a self-hosted n8n instance against the demo
+app [`adithyashetty39-lang/stormbreakers-demo`](https://github.com/adithyashetty39-lang/stormbreakers-demo).
+The workflow exports in [`workflows/`](workflows/) are the source of truth.
+
+```
+Pull request
+  └─ GitHub CI (demo repo .github/workflows/ci.yml)
+       tests + coverage · CodeQL · gitleaks · semantic response probe
+  └─ WF-0 ingest            fetch JUnit + coverage for the run
+  └─ WF-1 validation (54 nodes)
+       1. PR scope          which files this PR actually changed
+       2. Behaviour         base vs head responses + business rules (from CI)
+       3. Security          Dependabot / code-scanning alerts, minus ones already tracked
+       4. AI agent          GLM-5.3 Flash via OpenRouter, with 4 tools:
+                            get_test_history · get_advisory · search_imports · search_symbol_usage
+       5. Cross-check       independent re-derivation of every flaky/regression call
+       6. Deterministic gate  rules 1–10 below
+  └─ Outputs  one PR report (updated in place) · commit status · tracked issues
+```
+
+### What it catches, and the PR that shows it
+
+| Capability | How | Demo PR |
+|---|---|---|
+| **Flaky test vs real regression** | Same commit both passed and failed on `main` ⇒ flaky (proof). Never failed before and the PR changes code ⇒ regression. Re-derived independently of the AI. | [#54](https://github.com/adithyashetty39-lang/stormbreakers-demo/pull/54) flaky on a docs PR · [#24](https://github.com/adithyashetty39-lang/stormbreakers-demo/pull/24) regression + flaky in one run |
+| **Don't blame the PR for old problems** | Findings attributed from the PR's real diff: introduced vs pre-existing | [#54](https://github.com/adithyashetty39-lang/stormbreakers-demo/pull/54) — "nothing in this report was introduced by this PR" |
+| **Silent behaviour regressions (green CI)** | CI captures the app's real HTTP responses on base and head; compared field by field. A value that contradicts its own request is flagged | [#14](https://github.com/adithyashetty39-lang/stormbreakers-demo/pull/14) banner swap, 24/24 tests pass |
+| **Business-logic regressions** | Business rules declared in the demo repo's `probes.json` (e.g. "GST is 18% of the discounted price", "total = taxable + GST + shipping") are checked on both commits. Rules and checker come from the **base** commit, so a PR can't loosen them | [#33](https://github.com/adithyashetty39-lang/stormbreakers-demo/pull/33) two different live edits, 42/42 tests pass, both caught |
+| **No false alarms on safe changes** | Behaviour-preserving refactor: 0 divergences, all rules hold | [#40](https://github.com/adithyashetty39-lang/stormbreakers-demo/pull/40) |
+| **CVE reachability** | Advisory → vulnerable functions → are they imported → are they actually called | PyYAML `yaml.full_load` is called at `app/config.py:37`; Pillow's `ImageMath.eval` is never called |
+| **Don't redo known work** | Findings are filed as GitHub issues once and skipped on later runs (still listed, still count against release) | every report's "Already tracked" section |
+
+### Deterministic gate (WF-1 · *Deterministic Validation Gate*)
+
+| # | Rule | Effect |
+|---|---|---|
+| 1 | Any failing test | approve → review |
+| 2 | Security evidence unavailable | approve → review |
+| 3 | Low agent confidence | approve → review |
+| 4 | Secret detected | **block** (hard) |
+| 5 | Agent says "flaky" but history says regression | → review |
+| 6 | Known critical/high issue still open | approve → review |
+| 7 | Nothing attributable to this PR | block → review |
+| 8 | Response contradicts its request | approve → review |
+| 9 | Regression introduced by this PR (clean history, now failing, PR changes code) | **block** (hard) |
+| 10 | Business rule held on base, broken by this PR | **block** (hard) |
+
+If the agent returns no verdict (or crashes), it is asked once more; if that
+also fails the run takes a fail-safe REVIEW path. Every override and retry is
+disclosed in the report.
+
+### Honest limits
+
+- Behaviour checks only see endpoints listed in `probes.json`; business rules
+  only protect what someone wrote a rule for. Unprobed code is not checked.
+- It is built to catch mistakes, not attackers: a hidden backdoor that never
+  fires during testing, or a PR that edits `ci.yml` itself, needs code review
+  and branch protection.
+- The demo repo pins vulnerable dependencies and has a test that fails on
+  every third CI run, on purpose, so the demo is repeatable. Detection runs on
+  the real advisories and the real CI history.
+- #14's BLOCK comes from the agent's judgement (rule 8 guarantees at least
+  REVIEW); #24 and #33 are held by hard rules 9 and 10.
+- GitHub → n8n triggering needs a public URL for n8n (GitHub webhook,
+  `workflow_run` events → `/webhook/autorelease/github`). During the event the
+  same `workflow_run` payload was posted to that webhook manually.
+
+## Repo map
+
+| Path | What it is |
+|---|---|
+| `workflows/wf0_ingest.json`, `wf1_validation.json`, `approval_gate.json` | **Live** n8n workflows (exported) |
+| `workflows/tools/*.json` | **Live** agent tool sub-workflows |
+| `workflows/tools/verify_tools.js` | Runs the shipped tool code against the real demo app |
+| `semantic/diffResponses.js` (+ test) | Behaviour-diff detector; embedded verbatim in WF-1's *Diff Responses* node |
+| `scoring/`, `validation/`, `report/`, `eval/`, `schemas/`, `prompts/`, `config/` | Tested modules and prompts from the original design (below). The live release decision is made in WF-1, not by `scoring/scorer.js` |
+| `workflows/BUILD_GUIDE.md` | Original build spec; the exported JSON supersedes it |
+
+Behaviour contract, checker and probe runner live in the demo repo:
+`probes.json`, `tools/invariants.py`, `tools/probe_runner.py`, CI job `semantic-probe`.
+
+## Run it
+
+```bash
+cp .env.example .env              # fill in secrets
+docker compose up -d              # n8n + Postgres
+```
+
+1. In n8n, import `workflows/tools/*.json` first, then `wf0_ingest.json`, `wf1_validation.json`, `approval_gate.json`.
+2. Create credentials: a GitHub token for the target repo (read contents, actions and security alerts; write issues, pull-request comments and commit statuses) and an OpenRouter API key. Re-select them on the nodes that reference them.
+3. Point a GitHub webhook (`workflow_run` events) at `https://<your-n8n>/webhook/autorelease/github`.
+
+Tests:
+
+```bash
+npm test                                   # modules + semantic detector
+node workflows/tools/verify_tools.js       # needs the demo repo cloned next to this one
+```
+
+---
+
+## Original build plan (pre-event, kept for reference)
+
 An autonomous DevOps agent that decides whether a code release is safe to
 ship, by investigating GitHub Actions, Code Scanning, and Dependabot
 evidence, and producing a single evidence-linked Release Readiness Score for
@@ -28,7 +141,7 @@ precise node-by-node spec for building those in the editor — more reliable
 than a hand-typed AI-Agent-node JSON export I can't test against a live
 n8n version.
 
-## Repo layout
+### Repo layout
 
 ```
 docker-compose.yml, .env.example    n8n + Postgres + cloudflared tunnel (config validated, not runtime-tested -- see below)
@@ -47,7 +160,7 @@ eval/cases.json, score_eval.test.js 12 labeled scenarios, scoring half automated
 eval/run_eval.md                    how to run the agent-classification half live
 ```
 
-## Setup
+### Setup
 
 ```bash
 cp .env.example .env        # fill in secrets
@@ -59,7 +172,7 @@ Docker Desktop's daemon wasn't running here so the actual boot (n8n
 reachable on :5678, migrations applying against Postgres) is **not yet
 confirmed live** — do this first, before anything else.
 
-## Deviations from the PRD (and why)
+### Deviations from the PRD (and why)
 
 | PRD said | This build does | Why |
 |---|---|---|
@@ -79,7 +192,7 @@ search regex matched a *docstring mention* of the vulnerable function, not
 just the real call site (fixed in `search_symbol_usage.json`, verified by
 `verify_tools.js` against the actual demo repo).
 
-## What you (the team) must do
+### What you (the team) must do
 
 Nothing here replaces a human doing these — they need real accounts,
 real judgment calls, or a live n8n instance this environment doesn't have.
@@ -124,7 +237,7 @@ real judgment calls, or a live n8n instance this environment doesn't have.
    other two is behind at the hour-10/hour-20 checkpoints (see the plan's
    go/no-go table).
 
-## Judge Q&A
+### Judge Q&A
 
 PRD Section 7 has the three prepared answers (hallucination trust,
 false-negative risk on reachability, "why wouldn't GitHub just build this").

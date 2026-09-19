@@ -6,6 +6,10 @@
       "name": "Fetch OSV.dev advisory",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput",
       "position": [
         1216,
         560
@@ -26,18 +30,39 @@
       "name": "Fetch fallback config",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput",
       "position": [
         1216,
         752
       ],
       "parameters": {
-        "url": "=https://raw.githubusercontent.com/adithyashetty39-lang/stormbreakers-demo/main/security/vulnerable_functions.json",
+        "url": "=https://api.github.com/repos/adithyashetty39-lang/stormbreakers-demo/contents/security/vulnerable_functions.json?ref=main",
         "options": {
           "response": {
             "response": {
-              "neverError": true
+              "responseFormat": "text"
             }
           }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
         }
       }
     },
@@ -51,7 +76,7 @@
         656
       ],
       "parameters": {
-        "jsCode": "// Merge OSV (severity/cvss/summary) with the repo's vulnerable_functions.json\n// fallback (function-level reachability data). See prompts/security_agent.md.\nconst ghsaId = $('When Executed by Another Workflow').first().json.ghsa_id;\nconst osv = $('Fetch OSV.dev advisory').first().json || {};\nconst fallbackRaw = $('Fetch fallback config').first().json || {};\n\nconst severity = (osv.severity && osv.severity[0] && osv.severity[0].score) ? osv.severity[0].score\n  : (osv.database_specific && osv.database_specific.severity) || null;\n\nlet vulnerableFunctions = [];\nlet source = 'none';\nconst packages = fallbackRaw.packages || {};\nfor (const pkgName of Object.keys(packages)) {\n  const entry = packages[pkgName];\n  if (entry.ghsa_id === ghsaId) {\n    vulnerableFunctions = entry.vulnerable_functions || [];\n    source = 'config';\n    break;\n  }\n}\n\nreturn [{\n  json: {\n    ghsa_id: ghsaId,\n    cve_id: (osv.aliases || []).find((a) => a.startsWith('CVE-')) || null,\n    severity: severity,\n    summary: osv.summary || osv.details || null,\n    vulnerable_functions: vulnerableFunctions,\n    source: source,\n    osv_url: `https://osv.dev/vulnerability/${ghsaId}`\n  }\n}];"
+        "jsCode": "// Merge OSV (severity/cvss/summary) with the repo's vulnerable_functions.json\n// fallback (function-level reachability data). See prompts/security_agent.md.\nconst ghsaId = $('When Executed by Another Workflow').first().json.ghsa_id;\nconst osv = $('Fetch OSV.dev advisory').first().json || {};\n// Fetched as text (raw media type), so it arrives as a string in .data and\n// has to be parsed. Unparseable or unreachable -> no fallback, never a crash.\nlet fallbackRaw = $('Fetch fallback config').first().json || {};\nif (typeof fallbackRaw.data === 'string') {\n  try { fallbackRaw = JSON.parse(fallbackRaw.data); } catch (e) { fallbackRaw = {}; }\n}\n\nconst severity = (osv.severity && osv.severity[0] && osv.severity[0].score) ? osv.severity[0].score\n  : (osv.database_specific && osv.database_specific.severity) || null;\n\nlet vulnerableFunctions = [];\nlet source = 'none';\nconst packages = fallbackRaw.packages || {};\nfor (const pkgName of Object.keys(packages)) {\n  const entry = packages[pkgName];\n  if (ghsaId && String(entry.ghsa_id || '').toUpperCase() === String(ghsaId).toUpperCase()) {\n    vulnerableFunctions = entry.vulnerable_functions || [];\n    source = 'config';\n    break;\n  }\n}\n\nreturn [{\n  json: {\n    ghsa_id: ghsaId,\n    cve_id: (osv.aliases || []).find((a) => a.startsWith('CVE-')) || null,\n    severity: severity,\n    summary: osv.summary || osv.details || null,\n    vulnerable_functions: vulnerableFunctions,\n    source: source,\n    osv_url: `https://osv.dev/vulnerability/${ghsaId}`\n  }\n}];"
       }
     },
     {

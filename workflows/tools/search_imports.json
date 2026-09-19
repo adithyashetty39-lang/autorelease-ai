@@ -6,6 +6,9 @@
       "name": "Get repo tree",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
       "position": [
         128,
         -304
@@ -41,18 +44,38 @@
       "name": "Fetch file content",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
       "position": [
         640,
         -304
       ],
       "parameters": {
-        "url": "=https://raw.githubusercontent.com/{{ $('When Executed by Another Workflow').first().json.repo || 'adithyashetty39-lang/stormbreakers-demo' }}/{{ $('When Executed by Another Workflow').first().json.sha }}/{{ $json.path }}",
+        "url": "=https://api.github.com/repos/{{ $('When Executed by Another Workflow').first().json.repo || 'adithyashetty39-lang/stormbreakers-demo' }}/contents/{{ $json.path }}?ref={{ $('When Executed by Another Workflow').first().json.sha }}",
         "options": {
           "response": {
             "response": {
               "responseFormat": "text"
             }
           }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
         }
       }
     },
@@ -66,7 +89,7 @@
         -304
       ],
       "parameters": {
-        "jsCode": "// Regex-match import statements for the target package. Deliberately\n// simple string matching (PRD: \"simple string/import match is fine for\n// MVP\") -- covers `import X`, `import X as y`, `from X import ...`,\n// `from X.sub import ...`. Skips docstrings/comments -- see\n// search_symbol_usage.json's header comment for why that skip exists\n// (found by testing against the real demo repo, not theoretical).\nconst pkg = $('When Executed by Another Workflow').first().json.package;\nconst escaped = pkg.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\nconst importRe = new RegExp(`^\\\\s*(import\\\\s+${escaped}\\\\b|from\\\\s+${escaped}(\\\\.[\\\\w.]+)?\\\\s+import\\\\b)`);\n\nconst results = [];\nfor (const item of $input.all()) {\n  const path = item.json.path || (item.json.__path || '');\n  const content = typeof item.json === 'string' ? item.json : (item.json.data || item.json.body || '');\n  // n8n's HTTP Request node puts plain-text bodies in different fields\n  // depending on version -- if this comes back empty, check the actual\n  // output shape in the editor and adjust the field name above.\n  const lines = String(content).split('\\n');\n  let inDocstring = false;\n  lines.forEach((rawLine, i) => {\n    const trimmed = rawLine.trim();\n    const wasInDocstring = inDocstring;\n    const tripleQuoteCount = (trimmed.match(/\"\"\"|'''/g) || []).length;\n    const isOneLineDocstring = tripleQuoteCount >= 2 && (trimmed.startsWith('\"\"\"') || trimmed.startsWith(\"'''\"));\n    if (tripleQuoteCount % 2 === 1) inDocstring = !inDocstring;\n    if (wasInDocstring || isOneLineDocstring || trimmed.startsWith('#')) return;\n    if (importRe.test(rawLine)) {\n      results.push({ file: path, line: i + 1, statement: trimmed });\n    }\n  });\n}\nreturn [{ json: { package: pkg, matches: results } }];"
+        "jsCode": "// Regex-match import statements for the target package. Deliberately\n// simple string matching (PRD: \"simple string/import match is fine for\n// MVP\") -- covers `import X`, `import X as y`, `from X import ...`,\n// `from X.sub import ...`. Skips docstrings/comments -- see\n// search_symbol_usage.json's header comment for why that skip exists\n// (found by testing against the real demo repo, not theoretical).\nconst pkg = $('When Executed by Another Workflow').first().json.package;\nconst escaped = pkg.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\nconst importRe = new RegExp(`^\\\\s*(import\\\\s+${escaped}\\\\b|from\\\\s+${escaped}(\\\\.[\\\\w.]+)?\\\\s+import\\\\b)`);\n\nconst results = [];\n// The file fetch replaces each item's json with the file body, so the path is\n// lost there. Its output is 1:1 and in order with \"Filter .py files\", so recover the\n// path by index -- otherwise every match reports file \"\" and the report can\n// say \"line 37\" but not where.\nconst srcPaths = $('Filter .py files').all().map((i) => i.json.path || '');\nlet fileIdx = -1;\nfor (const item of $input.all()) {\n  fileIdx++;\n  const path = item.json.path || srcPaths[fileIdx] || '';\n  const content = typeof item.json === 'string' ? item.json : (item.json.data || item.json.body || '');\n  // n8n's HTTP Request node puts plain-text bodies in different fields\n  // depending on version -- if this comes back empty, check the actual\n  // output shape in the editor and adjust the field name above.\n  const lines = String(content).split('\\n');\n  let inDocstring = false;\n  lines.forEach((rawLine, i) => {\n    const trimmed = rawLine.trim();\n    const wasInDocstring = inDocstring;\n    const tripleQuoteCount = (trimmed.match(/\"\"\"|'''/g) || []).length;\n    const isOneLineDocstring = tripleQuoteCount >= 2 && (trimmed.startsWith('\"\"\"') || trimmed.startsWith(\"'''\"));\n    if (tripleQuoteCount % 2 === 1) inDocstring = !inDocstring;\n    if (wasInDocstring || isOneLineDocstring || trimmed.startsWith('#')) return;\n    if (importRe.test(rawLine)) {\n      results.push({ file: path, line: i + 1, statement: trimmed });\n    }\n  });\n}\nreturn [{ json: { package: pkg, matches: results } }];"
       }
     },
     {

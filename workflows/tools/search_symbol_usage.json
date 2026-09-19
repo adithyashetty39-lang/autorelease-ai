@@ -28,6 +28,9 @@
       "name": "Get repo tree",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
       "position": [
         320,
         -256
@@ -63,18 +66,38 @@
       "name": "Fetch file content",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
       "position": [
         832,
         -256
       ],
       "parameters": {
-        "url": "=https://raw.githubusercontent.com/{{ $('When called as a tool').first().json.repo || 'adithyashetty39-lang/stormbreakers-demo' }}/{{ $('When called as a tool').first().json.sha }}/{{ $json.path }}",
+        "url": "=https://api.github.com/repos/{{ $('When called as a tool').first().json.repo || 'adithyashetty39-lang/stormbreakers-demo' }}/contents/{{ $json.path }}?ref={{ $('When called as a tool').first().json.sha }}",
         "options": {
           "response": {
             "response": {
               "responseFormat": "text"
             }
           }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
         }
       }
     },
@@ -88,7 +111,7 @@
         -256
       ],
       "parameters": {
-        "jsCode": "// Regex call-site search with a docstring/comment skip -- see the header\n// comment on this file for why that skip exists. Not a real parser: still\n// possible to fool with unusual formatting. Good enough for the MVP's\n// stated 'import-level, not full call-graph' scope (PRD Section 2/6.2).\nconst symbolsRaw = $('When called as a tool').first().json.symbols || [];\nconst symbols = typeof symbolsRaw === 'string'\n  ? symbolsRaw.split(',').map((s) => s.trim()).filter(Boolean)\n  : (Array.isArray(symbolsRaw) ? symbolsRaw : []);\nconst results = [];\n\nfor (const item of $input.all()) {\n  const filePath = item.json.path;\n  const content = typeof item.json === 'string' ? item.json : (item.json.data || item.json.body || '');\n  const lines = String(content).split('\\n');\n  let inDocstring = false;\n\n  lines.forEach((rawLine, i) => {\n    const trimmed = rawLine.trim();\n    const wasInDocstring = inDocstring;\n    const tripleQuoteCount = (trimmed.match(/\"\"\"|'''/g) || []).length;\n    const isOneLineDocstring = tripleQuoteCount >= 2 && (trimmed.startsWith('\"\"\"') || trimmed.startsWith(\"'''\"));\n    if (tripleQuoteCount % 2 === 1) inDocstring = !inDocstring;\n    if (wasInDocstring || isOneLineDocstring || trimmed.startsWith('#')) return;\n\n    for (const sym of symbols) {\n      const shortName = sym.split('.').pop();\n      const escaped = shortName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n      const re = new RegExp(`\\\\b${escaped}\\\\s*\\\\(`);\n      if (re.test(rawLine)) {\n        results.push({ file: filePath, line: i + 1, symbol: sym, snippet: trimmed });\n      }\n    }\n  });\n}\n\nreturn [{ json: { symbols, matches: results } }];"
+        "jsCode": "// Regex call-site search with a docstring/comment skip -- see the header\n// comment on this file for why that skip exists. Not a real parser: still\n// possible to fool with unusual formatting. Good enough for the MVP's\n// stated 'import-level, not full call-graph' scope (PRD Section 2/6.2).\nconst symbolsRaw = $('When called as a tool').first().json.symbols || [];\nconst symbols = typeof symbolsRaw === 'string'\n  ? symbolsRaw.split(',').map((s) => s.trim()).filter(Boolean)\n  : (Array.isArray(symbolsRaw) ? symbolsRaw : []);\nconst results = [];\n\n// The file fetch replaces each item's json with the file body, so the path is\n// lost there. Its output is 1:1 and in order with \"Filter .py files\", so recover the\n// path by index -- otherwise every match reports file \"\" and the report can\n// say \"line 37\" but not where.\nconst srcPaths = $('Filter .py files').all().map((i) => i.json.path || '');\nlet fileIdx = -1;\nfor (const item of $input.all()) {\n  fileIdx++;\n  const filePath = item.json.path || srcPaths[fileIdx] || '';\n  const content = typeof item.json === 'string' ? item.json : (item.json.data || item.json.body || '');\n  const lines = String(content).split('\\n');\n  let inDocstring = false;\n\n  lines.forEach((rawLine, i) => {\n    const trimmed = rawLine.trim();\n    const wasInDocstring = inDocstring;\n    const tripleQuoteCount = (trimmed.match(/\"\"\"|'''/g) || []).length;\n    const isOneLineDocstring = tripleQuoteCount >= 2 && (trimmed.startsWith('\"\"\"') || trimmed.startsWith(\"'''\"));\n    if (tripleQuoteCount % 2 === 1) inDocstring = !inDocstring;\n    if (wasInDocstring || isOneLineDocstring || trimmed.startsWith('#')) return;\n\n    for (const sym of symbols) {\n      const shortName = sym.split('.').pop();\n      const escaped = shortName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n      const re = new RegExp(`\\\\b${escaped}\\\\s*\\\\(`);\n      if (re.test(rawLine)) {\n        results.push({ file: filePath, line: i + 1, symbol: sym, snippet: trimmed });\n      }\n    }\n  });\n}\n\nreturn [{ json: { symbols, matches: results } }];"
       }
     }
   ],

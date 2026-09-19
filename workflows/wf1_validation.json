@@ -2,9 +2,6 @@
   "name": "AutoRelease - WF-1 Validation",
   "nodes": [
     {
-      "parameters": {
-        "inputSource": "passthrough"
-      },
       "id": "c23e8565-c94f-4b13-8835-c57dad3ce5c8",
       "name": "WF-0 Analysis Input",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
@@ -12,12 +9,12 @@
       "position": [
         0,
         0
-      ]
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
     },
     {
-      "parameters": {
-        "jsCode": "const raw = $input.first().json;\nconst input = raw.body ?? raw; // handle both webhook (wrapped) and Execute-Workflow (direct) triggers\n\nreturn [\n  {\n    json: {\n      repository: input.repository,\n\n      run_id: input.workflow_run?.run_id,\n      run_number: input.workflow_run?.run_number,\n      head_sha: input.workflow_run?.head_sha,\n      branch: input.workflow_run?.branch,\n      conclusion: input.workflow_run?.conclusion,\n      workflow_name: input.workflow_run?.workflow_name,\n      html_url: input.workflow_run?.html_url,\n\n      junit_xml: input.test_results?.junit_xml ?? null,\n      coverage_xml: input.test_results?.coverage_xml ?? null,\n\n      junit_available: input.evidence?.junit_available ?? false,\n      coverage_available: input.evidence?.coverage_available ?? false\n    }\n  }\n];"
-      },
       "id": "6b7ccb72-6341-4cbb-8b39-53263262cfb8",
       "name": "Normalize Analysis Input",
       "type": "n8n-nodes-base.code",
@@ -25,12 +22,12 @@
       "position": [
         224,
         0
-      ]
+      ],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst input = raw.body ?? raw; // handle both webhook (wrapped) and Execute-Workflow (direct) triggers\n\nreturn [\n  {\n    json: {\n      repository: input.repository,\n\n      run_id: input.workflow_run?.run_id,\n      run_number: input.workflow_run?.run_number,\n      head_sha: input.workflow_run?.head_sha,\n      branch: input.workflow_run?.branch,\n      conclusion: input.workflow_run?.conclusion,\n      workflow_name: input.workflow_run?.workflow_name,\n      html_url: input.workflow_run?.html_url,\n\n      junit_xml: input.test_results?.junit_xml ?? null,\n      coverage_xml: input.test_results?.coverage_xml ?? null,\n\n      junit_available: input.evidence?.junit_available ?? false,\n      coverage_available: input.evidence?.coverage_available ?? false\n    }\n  }\n];"
+      }
     },
     {
-      "parameters": {
-        "jsCode": "const input = $input.first().json;\n\nconst junit = input.junit_xml || '';\nconst coverage = input.coverage_xml || '';\n\nconst testsMatch = junit.match(/tests=\"(\\d+)\"/);\nconst failuresMatch = junit.match(/failures=\"(\\d+)\"/);\nconst errorsMatch = junit.match(/errors=\"(\\d+)\"/);\nconst skippedMatch = junit.match(/skipped=\"(\\d+)\"/);\n\nconst lineRateMatch = coverage.match(/line-rate=\"([^\"]+)\"/);\n\n// Real bug, found by testing against a live multi-testcase run: the old\n// regex used [\\s\\S]*? to span from one <testcase ...> tag to the NEXT\n// <failure>, which happily skips across self-closing sibling testcases and\n// pairs the WRONG classname/name with a failure that belongs to a later\n// test. Fixed with explicit per-testcase boundary scanning (self-closing\n// \"/>\" or the matching \"</testcase>\"), same technique proven in the\n// get_test_history tool.\nconst failedTests = [];\nlet searchFrom = 0;\nwhile (true) {\n  const startIdx = junit.indexOf('<testcase', searchFrom);\n  if (startIdx === -1) break;\n  const tagCloseIdx = junit.indexOf('>', startIdx);\n  if (tagCloseIdx === -1) break;\n  const openTag = junit.slice(startIdx, tagCloseIdx + 1);\n  const isSelfClosing = openTag.endsWith('/>');\n  let blockEnd;\n  if (isSelfClosing) {\n    blockEnd = tagCloseIdx + 1;\n  } else {\n    const closeIdx = junit.indexOf('</testcase>', tagCloseIdx);\n    blockEnd = closeIdx !== -1 ? closeIdx + '</testcase>'.length : junit.length;\n  }\n  const block = junit.slice(startIdx, blockEnd);\n  if (block.includes('<failure') || block.includes('<error')) {\n    const classnameMatch = openTag.match(/classname=\"([^\"]*)\"/);\n    const nameMatch = openTag.match(/\\sname=\"([^\"]*)\"/);\n    const msgMatch = block.match(/<(?:failure|error)[^>]*message=\"([^\"]*)\"/);\n    failedTests.push({\n      classname: classnameMatch ? classnameMatch[1] : '',\n      name: nameMatch ? nameMatch[1] : '',\n      message: msgMatch ? msgMatch[1] : ''\n    });\n  }\n  searchFrom = blockEnd;\n}\n\nreturn [\n  {\n    json: {\n      repository: input.repository,\n      run_id: input.run_id,\n      run_number: input.run_number,\n      head_sha: input.head_sha,\n      branch: input.branch,\n      conclusion: input.conclusion,\n      workflow_name: input.workflow_name,\n      html_url: input.html_url,\n\n      test_summary: {\n        total: Number(testsMatch?.[1] || 0),\n        failures: Number(failuresMatch?.[1] || 0),\n        errors: Number(errorsMatch?.[1] || 0),\n        skipped: Number(skippedMatch?.[1] || 0),\n        passed: Math.max(\n          0,\n          Number(testsMatch?.[1] || 0) -\n          Number(failuresMatch?.[1] || 0) -\n          Number(errorsMatch?.[1] || 0) -\n          Number(skippedMatch?.[1] || 0)\n        )\n      },\n\n      coverage: {\n        line_rate: Number(lineRateMatch?.[1] || 0),\n        percentage: Number(lineRateMatch?.[1] || 0) * 100\n      },\n\n      failed_tests: failedTests\n    }\n  }\n];"
-      },
       "id": "808c564b-a618-4808-8924-426aaaf0f0d6",
       "name": "Parse Test Evidence",
       "type": "n8n-nodes-base.code",
@@ -38,9 +35,21 @@
       "position": [
         416,
         0
-      ]
+      ],
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst junit = input.junit_xml || '';\nconst coverage = input.coverage_xml || '';\n\nconst testsMatch = junit.match(/tests=\"(\\d+)\"/);\nconst failuresMatch = junit.match(/failures=\"(\\d+)\"/);\nconst errorsMatch = junit.match(/errors=\"(\\d+)\"/);\nconst skippedMatch = junit.match(/skipped=\"(\\d+)\"/);\n\nconst lineRateMatch = coverage.match(/line-rate=\"([^\"]+)\"/);\n\n// Real bug, found by testing against a live multi-testcase run: the old\n// regex used [\\s\\S]*? to span from one <testcase ...> tag to the NEXT\n// <failure>, which happily skips across self-closing sibling testcases and\n// pairs the WRONG classname/name with a failure that belongs to a later\n// test. Fixed with explicit per-testcase boundary scanning (self-closing\n// \"/>\" or the matching \"</testcase>\"), same technique proven in the\n// get_test_history tool.\nconst failedTests = [];\nlet searchFrom = 0;\nwhile (true) {\n  const startIdx = junit.indexOf('<testcase', searchFrom);\n  if (startIdx === -1) break;\n  const tagCloseIdx = junit.indexOf('>', startIdx);\n  if (tagCloseIdx === -1) break;\n  const openTag = junit.slice(startIdx, tagCloseIdx + 1);\n  const isSelfClosing = openTag.endsWith('/>');\n  let blockEnd;\n  if (isSelfClosing) {\n    blockEnd = tagCloseIdx + 1;\n  } else {\n    const closeIdx = junit.indexOf('</testcase>', tagCloseIdx);\n    blockEnd = closeIdx !== -1 ? closeIdx + '</testcase>'.length : junit.length;\n  }\n  const block = junit.slice(startIdx, blockEnd);\n  if (block.includes('<failure') || block.includes('<error')) {\n    const classnameMatch = openTag.match(/classname=\"([^\"]*)\"/);\n    const nameMatch = openTag.match(/\\sname=\"([^\"]*)\"/);\n    const msgMatch = block.match(/<(?:failure|error)[^>]*message=\"([^\"]*)\"/);\n    failedTests.push({\n      classname: classnameMatch ? classnameMatch[1] : '',\n      name: nameMatch ? nameMatch[1] : '',\n      message: msgMatch ? msgMatch[1] : ''\n    });\n  }\n  searchFrom = blockEnd;\n}\n\nreturn [\n  {\n    json: {\n      repository: input.repository,\n      run_id: input.run_id,\n      run_number: input.run_number,\n      head_sha: input.head_sha,\n      branch: input.branch,\n      conclusion: input.conclusion,\n      workflow_name: input.workflow_name,\n      html_url: input.html_url,\n\n      test_summary: {\n        total: Number(testsMatch?.[1] || 0),\n        failures: Number(failuresMatch?.[1] || 0),\n        errors: Number(errorsMatch?.[1] || 0),\n        skipped: Number(skippedMatch?.[1] || 0),\n        passed: Math.max(\n          0,\n          Number(testsMatch?.[1] || 0) -\n          Number(failuresMatch?.[1] || 0) -\n          Number(errorsMatch?.[1] || 0) -\n          Number(skippedMatch?.[1] || 0)\n        )\n      },\n\n      coverage: {\n        line_rate: Number(lineRateMatch?.[1] || 0),\n        percentage: Number(lineRateMatch?.[1] || 0) * 100\n      },\n\n      failed_tests: failedTests\n    }\n  }\n];"
+      }
     },
     {
+      "id": "2d687ded-f791-4861-8cdb-dd4ff3bbcb14",
+      "name": "Fetch Dependabot Alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "position": [
+        448,
+        160
+      ],
       "parameters": {
         "url": "https://api.github.com/repos/adithyashetty39-lang/stormbreakers-demo/dependabot/alerts",
         "authentication": "genericCredentialType",
@@ -54,15 +63,6 @@
           }
         }
       },
-      "id": "2d687ded-f791-4861-8cdb-dd4ff3bbcb14",
-      "name": "Fetch Dependabot Alerts",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.5,
-      "alwaysOutputData": true,
-      "position": [
-        448,
-        160
-      ],
       "credentials": {
         "httpHeaderAuth": {
           "id": "KmkmjtyH6wK2g6pW",
@@ -71,6 +71,15 @@
       }
     },
     {
+      "id": "acddcfd1-2ce8-4f13-bc38-ae4f42b65d26",
+      "name": "Fetch Code Scanning Alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "position": [
+        448,
+        368
+      ],
       "parameters": {
         "url": "https://api.github.com/repos/adithyashetty39-lang/stormbreakers-demo/code-scanning/alerts",
         "authentication": "genericCredentialType",
@@ -84,15 +93,6 @@
           }
         }
       },
-      "id": "acddcfd1-2ce8-4f13-bc38-ae4f42b65d26",
-      "name": "Fetch Code Scanning Alerts",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.5,
-      "alwaysOutputData": true,
-      "position": [
-        448,
-        368
-      ],
       "credentials": {
         "httpHeaderAuth": {
           "id": "KmkmjtyH6wK2g6pW",
@@ -101,9 +101,6 @@
       }
     },
     {
-      "parameters": {
-        "jsCode": "const items = $input.all();\nconst raw = items[0]?.json;\nconst isErrorResponse = raw && typeof raw === 'object' && !Array.isArray(raw) && (raw.message || raw.status) && !Array.isArray(raw.alerts);\nif (isErrorResponse) {\n  return [{ json: { source: 'dependabot', available: false, count: 0, alerts: [], error: raw.message || 'unavailable' } }];\n}\nconst alerts = items.flatMap(item => {\n  const data = item.json;\n  if (Array.isArray(data)) return data;\n  if (Array.isArray(data.alerts)) return data.alerts;\n  return data ? [data] : [];\n});\nreturn [{ json: { source: 'dependabot', available: true, count: alerts.length, alerts: alerts.map(alert => ({\n  number: alert.number ?? null, state: alert.state ?? null, dependency: alert.dependency?.package?.name ?? null,\n  ecosystem: alert.dependency?.package?.ecosystem ?? null, manifest_path: alert.dependency?.manifest_path ?? null,\n  severity: alert.security_advisory?.severity ?? null, cve: alert.security_advisory?.cve?.id ?? null,\n  ghsa: alert.security_advisory?.ghsa_id ?? null, summary: alert.security_advisory?.summary ?? null,\n  vulnerable_version_range: alert.security_vulnerability?.vulnerable_version_range ?? null,\n  first_patched_version: alert.security_vulnerability?.first_patched_version?.identifier ?? null\n})) } }];"
-      },
       "id": "5a5519be-19cd-4182-9e61-003b4e5274ec",
       "name": "Normalize Dependabot Alerts",
       "type": "n8n-nodes-base.code",
@@ -111,12 +108,12 @@
       "position": [
         672,
         160
-      ]
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst raw = items[0]?.json;\nconst isErrorResponse = raw && typeof raw === 'object' && !Array.isArray(raw) && (raw.message || raw.status) && !Array.isArray(raw.alerts);\n\nif (isErrorResponse) {\n  return [{ json: { source: 'dependabot', available: false, count: 0, alerts: [], known_tracked: [], tracked_skipped_count: 0, error: raw.message || 'unavailable' } }];\n}\n\nconst allAlerts = items.flatMap((item) => {\n  const data = item.json;\n  if (Array.isArray(data)) return data;\n  if (Array.isArray(data.alerts)) return data.alerts;\n  return data ? [data] : [];\n});\n\nconst mapped = allAlerts.map((alert) => ({\n  number: alert.number ?? null,\n  state: alert.state ?? null,\n  dependency: alert.dependency?.package?.name ?? null,\n  ecosystem: alert.dependency?.package?.ecosystem ?? null,\n  manifest_path: alert.dependency?.manifest_path ?? null,\n  severity: alert.security_advisory?.severity ?? null,\n  cve: alert.security_advisory?.cve?.id ?? null,\n  ghsa: alert.security_advisory?.ghsa_id ?? null,\n  summary: alert.security_advisory?.summary ?? null,\n  vulnerable_version_range: alert.security_vulnerability?.vulnerable_version_range ?? null,\n  first_patched_version: alert.security_vulnerability?.first_patched_version?.identifier ?? null,\n}));\n\n// --- PR SCOPE ATTRIBUTION (jury feedback) -------------------------------\n// A release gate that blames a PR for the repo's pre-existing debt is a gate\n// developers switch off. Every finding is labelled with whether THIS PR could\n// have introduced it, decided from the PR's actual changed-file list -- not\n// from the model's opinion.\n//\n// Fails OPEN: if scope cannot be determined, findings are marked 'unknown' and\n// still reported. We would rather over-report than silently hide a real issue.\nlet scope = { available: false, reason_unavailable: 'scope lookup did not run' };\ntry {\n  scope = $('Ensure PR Scope').first().json.pr_scope || scope;\n} catch (e) {\n  scope = { available: false, reason_unavailable: 'scope lookup did not run' };\n}\nconst changedFiles = scope.changed_files || [];\n\n// A dependency vulnerability enters the repo through a manifest. If this PR\n// does not modify the manifest that declares the package, the PR cannot have\n// introduced the vulnerable dependency -- that is a fact about the diff, not\n// an inference.\n//\n// Deliberately narrow wording: \"not introduced by this PR\" is NOT the same as\n// \"this PR is unaffected\". A PR can add code that newly *reaches* an\n// already-vulnerable package. Reachability stays the agent's job; this field\n// only answers who introduced the dependency.\nfunction attribute(a) {\n  if (!scope.available) {\n    return { attribution: 'unknown', attribution_reason: `PR scope unavailable (${scope.reason_unavailable}) -- reported without scoping.` };\n  }\n  if (a.manifest_path && changedFiles.includes(a.manifest_path)) {\n    return { attribution: 'pr_touched_manifest', attribution_reason: `This PR modifies ${a.manifest_path}, the manifest that declares this dependency.` };\n  }\n  return {\n    attribution: 'pre_existing',\n    attribution_reason: `This PR does not modify ${a.manifest_path || 'any dependency manifest'}, so it did not introduce this dependency.`,\n  };\n}\n\n// DEDUP (jury feedback): never spend tool calls re-investigating a finding\n// we have already filed as a tracked GitHub issue.\nlet trackedList = [];\ntry {\n  trackedList = $('Ensure Tracked Issues').first().json.tracked || [];\n} catch (e) {\n  trackedList = [];\n}\nconst byGhsa = {};\nfor (const t of trackedList) {\n  if (t.ghsa) byGhsa[String(t.ghsa).toUpperCase()] = t;\n}\nconst isTracked = (a) => a.ghsa && byGhsa[String(a.ghsa).toUpperCase()];\n\n// GitHub opens a separate alert per manifest, so one advisory can appear\n// several times (this repo: 9 alerts across 6 distinct advisories). Count the\n// alerts honestly, but list each advisory once -- a reader does not need the\n// same GHSA three times.\nconst knownTrackedAll = mapped.filter(isTracked).map((a) => {\n  const t = byGhsa[String(a.ghsa).toUpperCase()];\n  return { dependency: a.dependency, ghsa: a.ghsa, severity: a.severity, tracked_issue: t.number, tracked_issue_url: t.url, ...attribute(a) };\n});\nconst seenGhsa = new Set();\nconst knownTracked = knownTrackedAll.filter((k) => {\n  const key = String(k.ghsa).toUpperCase();\n  if (seenGhsa.has(key)) return false;\n  seenGhsa.add(key);\n  return true;\n});\nconst untracked = mapped.filter((a) => !isTracked(a)).map((a) => ({ ...a, ...attribute(a) }));\n\n// Cap the payload sent to the LLM. Ordering now puts anything this PR could\n// have introduced ahead of pre-existing debt, so the limited investigation\n// budget is spent on what this PR is actually accountable for.\nconst SEVERITY_RANK = { critical: 0, high: 1, medium: 2, moderate: 2, low: 3 };\nconst ATTR_RANK = { pr_touched_manifest: 0, unknown: 1, pre_existing: 2 };\nconst sorted = [...untracked].sort((a, b) => {\n  const at = (ATTR_RANK[a.attribution] ?? 1) - (ATTR_RANK[b.attribution] ?? 1);\n  if (at !== 0) return at;\n  return (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9);\n});\nconst MAX_ALERTS = 3;\nconst shown = sorted.slice(0, MAX_ALERTS);\nconst omittedCount = Math.max(0, sorted.length - shown.length);\n\nconst introducedCount = untracked.filter((a) => a.attribution === 'pr_touched_manifest').length;\n\nreturn [\n  {\n    json: {\n      source: 'dependabot',\n      available: true,\n      count: mapped.length,\n      new_count: untracked.length,\n      shown_count: shown.length,\n      omitted_count: omittedCount,\n      omitted_note: omittedCount > 0 ? `${omittedCount} untracked alert(s) not shown to the agent; ordered by PR-attribution then severity` : null,\n      tracked_skipped_count: knownTrackedAll.length,\n      tracked_advisory_count: knownTracked.length,\n      tracked_skipped_note: knownTrackedAll.length > 0 ? `${knownTrackedAll.length} alert(s) across ${knownTracked.length} advisories skipped -- already filed as tracked GitHub issues, not re-investigated` : null,\n      known_tracked: knownTracked,\n      scope_available: scope.available,\n      introduced_by_pr_count: introducedCount,\n      pre_existing_count: untracked.filter((a) => a.attribution === 'pre_existing').length,\n      alerts: shown,\n    },\n  },\n];"
+      }
     },
     {
-      "parameters": {
-        "jsCode": "const items = $input.all();\nconst raw = items[0]?.json;\nconst isErrorResponse = raw && typeof raw === 'object' && !Array.isArray(raw) && (raw.message || raw.status) && !Array.isArray(raw.alerts);\nif (isErrorResponse) {\n  return [{ json: { source: 'code_scanning', available: false, count: 0, alerts: [], error: raw.message || 'unavailable' } }];\n}\nconst alerts = items.flatMap(item => {\n  const data = item.json;\n  if (Array.isArray(data)) return data;\n  if (Array.isArray(data.alerts)) return data.alerts;\n  return data ? [data] : [];\n});\nreturn [{ json: { source: 'code_scanning', available: true, count: alerts.length, alerts: alerts.map(alert => ({\n  number: alert.number ?? null, state: alert.state ?? null, rule_id: alert.rule?.id ?? null,\n  rule_description: alert.rule?.description ?? null, severity: alert.rule?.security_severity_level ?? null,\n  tool: alert.tool?.name ?? null, category: alert.rule?.security_category ?? null, html_url: alert.html_url ?? null,\n  created_at: alert.created_at ?? null, updated_at: alert.updated_at ?? null\n})) } }];"
-      },
       "id": "987850fa-bdc5-4f07-b838-22fd2710b68e",
       "name": "Normalize Code Scanning Alerts",
       "type": "n8n-nodes-base.code",
@@ -124,12 +121,12 @@
       "position": [
         672,
         368
-      ]
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst raw = items[0]?.json;\nconst isErrorResponse = raw && typeof raw === 'object' && !Array.isArray(raw) && (raw.message || raw.status) && !Array.isArray(raw.alerts);\nif (isErrorResponse) {\n  return [{ json: { source: 'code_scanning', available: false, count: 0, alerts: [], error: raw.message || 'unavailable' } }];\n}\nconst alerts = items.flatMap(item => {\n  const data = item.json;\n  if (Array.isArray(data)) return data;\n  if (Array.isArray(data.alerts)) return data.alerts;\n  return data ? [data] : [];\n});\nconst mapped = alerts.map(alert => ({\n  number: alert.number ?? null, state: alert.state ?? null, rule_id: alert.rule?.id ?? null,\n  rule_description: alert.rule?.description ?? null, severity: alert.rule?.security_severity_level ?? null,\n  tool: alert.tool?.name ?? null, category: alert.rule?.security_category ?? null, html_url: alert.html_url ?? null,\n  // path is what makes scope attribution possible -- a code-scanning alert\n  // points at a specific file, so \"did this PR touch that file\" is decidable.\n  path: alert.most_recent_instance?.location?.path ?? null,\n  start_line: alert.most_recent_instance?.location?.start_line ?? null,\n  created_at: alert.created_at ?? null, updated_at: alert.updated_at ?? null\n}));\n\n// --- PR SCOPE ATTRIBUTION (jury feedback) -------------------------------\n// A release gate that blames a PR for the repo's pre-existing debt is a gate\n// developers switch off. Every finding is labelled with whether THIS PR could\n// have introduced it, decided from the PR's actual changed-file list -- not\n// from the model's opinion.\n//\n// Fails OPEN: if scope cannot be determined, findings are marked 'unknown' and\n// still reported. We would rather over-report than silently hide a real issue.\nlet scope = { available: false, reason_unavailable: 'scope lookup did not run' };\ntry {\n  scope = $('Ensure PR Scope').first().json.pr_scope || scope;\n} catch (e) {\n  scope = { available: false, reason_unavailable: 'scope lookup did not run' };\n}\nconst changedFiles = scope.changed_files || [];\n\nfunction attribute(a) {\n  if (!scope.available) {\n    return { attribution: 'unknown', attribution_reason: `PR scope unavailable (${scope.reason_unavailable}) -- reported without scoping.` };\n  }\n  if (a.path && changedFiles.includes(a.path)) {\n    return { attribution: 'introduced_by_pr', attribution_reason: `This PR modifies ${a.path}, the file this alert points at.` };\n  }\n  return { attribution: 'pre_existing', attribution_reason: `This PR does not modify ${a.path || 'the flagged file'}, so this alert predates it.` };\n}\n\nconst attributed = mapped.map((a) => ({ ...a, ...attribute(a) }));\n\nconst SEVERITY_RANK = { critical: 0, high: 1, medium: 2, moderate: 2, low: 3 };\nconst ATTR_RANK = { introduced_by_pr: 0, unknown: 1, pre_existing: 2 };\nconst sorted = [...attributed].sort((a, b) => {\n  const at = (ATTR_RANK[a.attribution] ?? 1) - (ATTR_RANK[b.attribution] ?? 1);\n  if (at !== 0) return at;\n  return (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9);\n});\nconst MAX_ALERTS = 3;\nconst shown = sorted.slice(0, MAX_ALERTS);\nconst omittedCount = Math.max(0, sorted.length - shown.length);\n\nreturn [{ json: {\n  source: 'code_scanning',\n  available: true,\n  count: mapped.length,\n  shown_count: shown.length,\n  omitted_count: omittedCount,\n  omitted_note: omittedCount > 0 ? `${omittedCount} alert(s) not shown to the agent; ordered by PR-attribution then severity` : null,\n  scope_available: scope.available,\n  introduced_by_pr_count: attributed.filter(a => a.attribution === 'introduced_by_pr').length,\n  pre_existing_count: attributed.filter(a => a.attribution === 'pre_existing').length,\n  alerts: shown,\n} }];"
+      }
     },
     {
-      "parameters": {
-        "numberInputs": 3
-      },
       "id": "c2b07e1f-5efe-4e3f-bb9e-a2ca7fbcfd5a",
       "name": "Merge Security and Test Evidence",
       "type": "n8n-nodes-base.merge",
@@ -137,12 +134,12 @@
       "position": [
         896,
         160
-      ]
+      ],
+      "parameters": {
+        "numberInputs": 3
+      }
     },
     {
-      "parameters": {
-        "jsCode": "const items = $input.all();\n\nconst test = items.find(i => i.json.test_summary);\nconst dependabot = items.find(i => i.json.source === 'dependabot');\nconst codeScanning = items.find(i => i.json.source === 'code_scanning');\n\nreturn [\n  {\n    json: {\n      repository: test?.json.repository ?? '',\n      run_id: test?.json.run_id ?? '',\n      run_number: test?.json.run_number ?? null,\n      head_sha: test?.json.head_sha ?? '',\n      branch: test?.json.branch ?? '',\n      conclusion: test?.json.conclusion ?? '',\n      workflow_name: test?.json.workflow_name ?? '',\n      html_url: test?.json.html_url ?? '',\n\n      test_summary: test?.json.test_summary ?? {\n        total: 0,\n        passed: 0,\n        failures: 0,\n        errors: 0,\n        skipped: 0\n      },\n\n      coverage: test?.json.coverage ?? {\n        line_rate: 0,\n        percentage: 0\n      },\n\n      failed_tests: test?.json.failed_tests ?? [],\n\n      dependabot: dependabot?.json ?? {\n        source: 'dependabot',\n        available: false,\n        count: 0,\n        alerts: []\n      },\n\n      code_scanning: codeScanning?.json ?? {\n        source: 'code_scanning',\n        available: false,\n        count: 0,\n        alerts: []\n      }\n    }\n  }\n];"
-      },
       "id": "3a1a838d-ccda-4ab1-b934-699a69b07775",
       "name": "Build Validation Context",
       "type": "n8n-nodes-base.code",
@@ -150,44 +147,49 @@
       "position": [
         1120,
         160
-      ]
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// PR scope travels with the evidence so the agent is TOLD what this PR changed\n// rather than inferring it. Read defensively: if the scope branch failed, the\n// agent still runs, just unscoped.\nlet prScope;\ntry {\n  prScope = $('Ensure PR Scope').first().json.pr_scope;\n} catch (e) {\n  prScope = null;\n}\nif (!prScope) prScope = { available: false, reason_unavailable: 'scope lookup did not run' };\n\n// Behavioural comparison of real responses across the PR. Read defensively:\n// if the chain did not run, the agent still runs, just without it.\nlet semantic;\ntry {\n  semantic = $('Diff Responses').first().json.semantic;\n} catch (e) {\n  semantic = null;\n}\nif (!semantic) semantic = { available: false, divergences: [], divergence_count: 0, reason: 'the behavioural comparison did not run' };\n\nconst test = items.find(i => i.json.test_summary);\nconst dependabot = items.find(i => i.json.source === 'dependabot');\nconst codeScanning = items.find(i => i.json.source === 'code_scanning');\n\nreturn [\n  {\n    json: {\n      repository: test?.json.repository ?? '',\n      pr_scope: prScope,\n      semantic: semantic,\n      run_id: test?.json.run_id ?? '',\n      run_number: test?.json.run_number ?? null,\n      head_sha: test?.json.head_sha ?? '',\n      branch: test?.json.branch ?? '',\n      conclusion: test?.json.conclusion ?? '',\n      workflow_name: test?.json.workflow_name ?? '',\n      html_url: test?.json.html_url ?? '',\n\n      test_summary: test?.json.test_summary ?? {\n        total: 0,\n        passed: 0,\n        failures: 0,\n        errors: 0,\n        skipped: 0\n      },\n\n      coverage: test?.json.coverage ?? {\n        line_rate: 0,\n        percentage: 0\n      },\n\n      failed_tests: test?.json.failed_tests ?? [],\n\n      dependabot: dependabot?.json ?? {\n        source: 'dependabot',\n        available: false,\n        count: 0,\n        alerts: []\n      },\n\n      code_scanning: codeScanning?.json ?? {\n        source: 'code_scanning',\n        available: false,\n        count: 0,\n        alerts: []\n      }\n    }\n  }\n];"
+      }
     },
     {
-      "parameters": {
-        "promptType": "define",
-        "text": "={{ JSON.stringify($json) }}",
-        "options": {
-          "systemMessage": "You are the AutoRelease Validation Agent.\n\nYour job is to validate whether a GitHub Actions run is safe to proceed toward release.\n\nYou will receive structured evidence containing:\n- CI test results\n- Code coverage\n- Failed tests\n- Dependabot security alerts\n- Code scanning alerts\n- Repository and workflow metadata\n\nRules:\n1. Base every conclusion on the provided evidence and tool results.\n2. Do not invent vulnerabilities, test failures, dependencies, or code usage.\n3. Use the available tools when additional repository or vulnerability evidence is required.\n4. Distinguish clearly between:\n   - confirmed findings\n   - probable findings\n   - insufficient evidence\n5. A failing test does not automatically mean a security vulnerability.\n6. A security alert does not automatically mean the vulnerable dependency is reachable or exploitable.\n7. Prefer concrete evidence such as vulnerable functions, imports, symbol usage, advisory details, and test results.\n8. Be conservative: when evidence is insufficient, say so.\n9. Your analysis must be deterministic and explain the evidence supporting each finding.\n10. Do not recommend release approval merely because coverage is high or tests pass.\n\nReturn your validation analysis as structured JSON with:\n{\n  \"decision\": \"approve\" | \"block\" | \"review\",\n  \"confidence\": 0-100,\n  \"summary\": \"short explanation\",\n  \"test_findings\": [],\n  \"security_findings\": [],\n  \"validated_findings\": [],\n  \"required_actions\": []\n}\n\n11. For Dependabot alerts, use get_advisory to find vulnerable_functions, then search_imports to see if the package is imported, then search_symbol_usage on those specific functions to check whether the vulnerable code path is actually called (not just imported). A vulnerable package that is imported but whose vulnerable function is never called is a much lower risk than one that is actively invoked -- say so explicitly in security_findings, citing what search_symbol_usage found.\n\n12. For EVERY failed test in the current run, call get_test_history(test_name) before classifying it. This checks the same test's pass/fail record on the last several completed runs on main -- NOT this PR's history (a new PR has no history of its own; the shared main branch does).\n    - If the history shows this test has ALSO failed on main before (intermittently, with passes in between, unrelated to whatever changed on those commits), classify it as a KNOWN FLAKY TEST, not a blocker. State the specific pass/fail counts as evidence (e.g. \"failed 2 of the last 6 runs on main\").\n    - If the history shows this test has NEVER failed on main before (all recent runs passed), classify it as a LIKELY REGRESSION introduced by this change -- this is a real blocker, not something to wave away.\n    - If get_test_history returns no usable history (runs_checked is 0, or all unknown_count), say so explicitly and treat it as insufficient evidence, not as automatically flaky OR automatically a regression.\n    - Never call a failing test \"probably flaky\" without having actually called get_test_history and citing what it returned. A guess is not evidence."
-        }
-      },
       "id": "08dc8919-57dd-4128-a631-54c817f8b6d1",
       "name": "AutoRelease Validation Agent",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
-      "retryOnFail": true,
+      "retryOnFail": false,
       "maxTries": 2,
       "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
       "position": [
         1280,
         176
-      ]
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json) }}",
+        "options": {
+          "systemMessage": "You are the AutoRelease Validation Agent.\n\nRESPONSE LENGTH: keep your response compact enough that it is never cut off\nmid-object -- a truncated response loses your entire analysis. Budget:\nsummary <= 900 characters, each finding string <= 400 characters,\nrequired_actions <= 6 items. Any explanation you write before the JSON should\nbe at most 3 short sentences; put the detail inside the JSON fields instead.\n\nYour job is to validate whether a GitHub Actions run is safe to proceed toward release.\n\nYou will receive structured evidence containing:\n- CI test results\n- Code coverage\n- Failed tests\n- Dependabot security alerts\n- Code scanning alerts\n- Repository and workflow metadata\n\nRules:\n1. Base every conclusion on the provided evidence and tool results.\n2. Do not invent vulnerabilities, test failures, dependencies, or code usage.\n3. Use the available tools when additional repository or vulnerability evidence is required.\n4. Distinguish clearly between:\n   - confirmed findings\n   - probable findings\n   - insufficient evidence\n5. A failing test does not automatically mean a security vulnerability.\n6. A security alert does not automatically mean the vulnerable dependency is reachable or exploitable.\n7. Prefer concrete evidence such as vulnerable functions, imports, symbol usage, advisory details, and test results.\n8. Be conservative: when evidence is insufficient, say so.\n9. Your analysis must be deterministic and explain the evidence supporting each finding.\n10. Do not recommend release approval merely because coverage is high or tests pass.\n\nReturn your validation analysis as structured JSON with:\n{\n  \"decision\": \"approve\" | \"block\" | \"review\",\n  \"confidence\": 0-100,\n  \"summary\": \"short explanation\",\n  \"test_findings\": [],\n  \"security_findings\": [],\n  \"validated_findings\": [],\n  \"required_actions\": []\n}\n\n11. For Dependabot alerts, use get_advisory to find vulnerable_functions, then search_imports to see if the package is imported, then search_symbol_usage on those specific functions to check whether the vulnerable code path is actually called (not just imported). A vulnerable package that is imported but whose vulnerable function is never called is a much lower risk than one that is actively invoked -- say so explicitly in security_findings, citing what search_symbol_usage found.\n\n12. For EVERY failed test in the current run, call get_test_history(test_name) before classifying it. This checks the same test's pass/fail record on the last several completed runs on main -- NOT this PR's history (a new PR has no history of its own; the shared main branch does).\n    - If the history shows this test has ALSO failed on main before (intermittently, with passes in between, unrelated to whatever changed on those commits), classify it as a KNOWN FLAKY TEST, not a blocker. State the specific pass/fail counts as evidence (e.g. \"failed 2 of the last 6 runs on main\").\n    - If the history shows this test has NEVER failed on main before (all recent runs passed), classify it as a LIKELY REGRESSION introduced by this change -- this is a real blocker, not something to wave away.\n    - If get_test_history returns no usable history (runs_checked is 0, or all unknown_count), say so explicitly and treat it as insufficient evidence, not as automatically flaky OR automatically a regression.\n    - Never call a failing test \"probably flaky\" without having actually called get_test_history and citing what it returned. A guess is not evidence.\n\n13. INVESTIGATION BUDGET -- you have a limited number of tool-calling rounds, so triage:\n    - Dependabot and code scanning alerts in the evidence are already sorted most-severe-first. Run the FULL investigation chain (get_advisory -> search_imports -> search_symbol_usage) for AT MOST the top 3 alerts.\n    - Call get_test_history for AT MOST the top 3 failed tests.\n    - For any remaining alerts or failed tests beyond those top 3, do NOT call tools for them. Assess them directly from the severity/summary fields already present in the evidence, explicitly note in your findings that they were not individually tool-verified due to investigation budget, and reflect that reduced certainty in confidence and required_actions.\n    - As soon as you have investigated the top items and have enough evidence for a confident decision, STOP calling tools and output your final JSON verdict immediately. Do not keep investigating lower-priority items after that point -- an unfinished investigation that never reaches a verdict is worse than a conservative verdict that flags remaining items as unverified.\n\n14. DEVELOPER-FACING OUTPUT QUALITY -- summary and required_actions are read directly\n    by a developer on a PR, not by you or another system. Hold them to a different bar\n    than the findings arrays:\n    - required_actions must contain concrete, resolved values, never internal field/schema\n      names. If you know a specific patched version, write it (e.g. \"Upgrade PyYAML to >= 5.4\").\n      If you do not know the exact version, write \"upgrade to the latest patched release\"\n      -- never print a literal placeholder like \"first_patched_version\" or \"first_patched_versions\".\n    - required_actions must never reference your own internal process. Do not write phrases\n      like \"investigation budget\", \"not individually tool-verified\", \"backend returned no\n      record\", \"advisory tool returned no record\", or similar. Those caveats belong in\n      security_findings/test_findings (where they are legitimate transparency about your\n      evidence), never in required_actions (which should read like a senior engineer's\n      review comment, not a system log). If an action depends on unverified evidence, phrase\n      it as something the developer can do to verify it themselves (e.g. \"confirm the patched\n      version via the GHSA advisory page\"), not as a description of what you could not do.\n    - summary must be a complete, well-formed statement. Never trail off or end with \"...\"\n      -- if you are short on space, finish the sentence rather than truncating it.\n    - When citing a test name anywhere in your output, copy it EXACTLY as given in the\n      evidence's failed_tests list. Do not paraphrase, abbreviate, or reconstruct it from\n      memory or from words in its failure message.\n\n16. PR SCOPE -- ATTRIBUTION. The evidence includes a `pr_scope` object listing exactly which files this pull request changes, taken from the PR's real diff. It is a fact, not an inference, and it overrides your impression.\n    - A finding counts as introduced by this PR ONLY if this PR changed the file it originates from: a Dependabot alert only if pr_scope.changed_files contains that alert's manifest_path; a code scanning alert only if it contains that alert's path.\n    - Every alert in the evidence already carries `attribution` and `attribution_reason` computed from that diff. Treat those as ground truth. Do not contradict them.\n    - If pr_scope.touches_code is false, this PR changed no code files, so it CANNOT have changed runtime or test behaviour. Never describe a test failure or vulnerability as caused by, introduced by, or a regression from such a PR.\n    - Say this explicitly in summary: name what the PR actually changes, then state plainly which findings pre-date it.\n    - Do NOT demand that this PR be blocked for a problem it did not introduce. Report the finding, recommend fixing it, but attribute it to the repository. \"Block release until PyYAML is upgraded\" is wrong when PyYAML pre-dates the PR; write \"PyYAML pre-dates this PR and should be fixed separately\" instead. Your decision for a PR that introduced nothing should be approve or review, not block.\n    - Reporting a pre-existing finding is still correct and useful -- scoping changes who is accountable, not whether it gets reported. Never silently drop a finding because it is pre-existing.\n    - If pr_scope.available is false, scope could not be determined: report everything unscoped and say scope was unavailable, rather than assuming either way.\n\n17. SEMANTIC RESPONSE DIVERGENCE. The evidence may include a `semantic` object holding a comparison of the app's ACTUAL HTTP responses before and after this PR, captured by running real requests against both commits. This catches regressions a green test suite cannot: a test that asserts only \"status is 200\" and \"the key exists\" stays green when the value becomes wrong.\n    - Each divergence is a fact already established from the captures. Your job is to judge INTENT: does this change look deliberate, or like a mistake?\n    - NEVER report a divergence that is not present in `semantic.divergences`. Do not infer, extrapolate or invent behavioural changes. If the list is empty, there were none.\n    - `kind: \"coherence_break\"` is the strongest signal: a returned value used to reference the thing the request asked for and no longer does (for example `/home?partner=amazon` returning a banner naming a different partner). Treat these as probable bugs unless the PR clearly states the change was intended.\n    - `kind: \"endpoint_added\"` and `kind: \"field_added\"` are additive -- new capability, not regressions. Do not block on them.\n    - `kind: \"endpoint_removed\"` and `kind: \"field_removed\"` break existing callers; treat them as breaking changes and say so.\n    - `kind: \"value_changed\"` is neutral on its own. Judge it against the PR's stated purpose; a pricing PR changing a price is expected, a docs PR changing a price is not.\n    - If `semantic.available` is false, say plainly that behaviour was NOT compared and why (`semantic.reason`). Never treat an absent comparison as evidence that nothing changed.\n    - A green test suite is not evidence against a divergence here. The whole point is that these changes pass tests.\n    - `kind: \"invariant_violation\"` means a BUSINESS RULE declared in the repository's behaviour contract (probes.json) held on the base commit and fails on this change -- e.g. \"total = taxable amount + GST + shipping\" or \"a coupon never raises the price\". The rule and its checker come from the base commit, so the PR cannot have weakened them, and the evaluation is arithmetic, not opinion. Treat it as a confirmed bug. In your summary name the rule in plain words, quote the observed values from `detail`, and point at the most likely cause in the changed files.\n    - `kind: \"invariant_preexisting_violation\"` was already broken before this PR: report it, never attribute it to this PR. `kind: \"invariant_fixed\"` is an improvement.\n    - If `semantic.contract_changed_in_pr` is \"true\", this PR edits the behaviour contract or its checker. The run still judged it by the BASE version, but say plainly that the contract change itself needs a reviewer's sign-off.\n\nFINAL MESSAGE: your final message must CONTAIN the verdict JSON object itself. Never end your turn by saying you are about to output the verdict (\"outputting the verdict now\", \"here is my verdict:\") without the JSON following in that same message -- a turn that announces the verdict but does not include it is discarded and costs a full retry.\n\nREFERENCES AND ADVICE:\n- When you mention a CI run number, write \"run 21\", never \"run #21\". GitHub turns every #N into a link to issue or pull request N, so \"#21\" would point the reader at an unrelated issue.\n- Never recommend re-running CI to \"confirm\" that a test is flaky. A re-run reuses the same run number and environment, so a pass or fail on retry proves nothing either way. Point to the evidence you already have (for example the same commit both passing and failing on main), and recommend fixing, stabilising or quarantining the flaky test instead.",
+          "maxIterations": 15
+        }
+      }
     },
     {
-      "parameters": {
-        "modelName": "models/gemini-3.6-flash",
-        "options": {}
-      },
       "id": "a3e2a415-1834-4501-984a-ae95af4705de",
       "name": "Google Gemini Chat Model",
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
       "typeVersion": 1.1,
-      "retryOnFail": true,
+      "retryOnFail": false,
       "maxTries": 3,
       "waitBetweenTries": 3000,
       "position": [
         1152,
         384
       ],
+      "parameters": {
+        "modelName": "models/gemini-3.6-flash",
+        "options": {}
+      },
       "credentials": {
         "googlePalmApi": {
           "id": "Rxzakt2ykaTwFQ3u",
@@ -196,6 +198,14 @@
       }
     },
     {
+      "id": "a029c164-c64f-4b81-b218-fa960a09abe8",
+      "name": "Call 'AutoRelease Tool - get_advisory'",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1360,
+        416
+      ],
       "parameters": {
         "description": "Retrieve authoritative vulnerability advisory details for a GHSA ID, including severity, affected versions, patched versions, and vulnerable functions when available.",
         "workflowId": {
@@ -207,7 +217,9 @@
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
-          "value": {},
+          "value": {
+            "ghsa_id": "={{ $fromAI('ghsa_id', 'the GHSA identifier from the Dependabot alert, e.g. GHSA-8q59-q68h-6hv4', 'string') }}"
+          },
           "matchingColumns": [
             "ghsa_id"
           ],
@@ -226,17 +238,17 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": false
         }
-      },
-      "id": "a029c164-c64f-4b81-b218-fa960a09abe8",
-      "name": "Call 'AutoRelease Tool - get_advisory'",
+      }
+    },
+    {
+      "id": "b3406e53-45db-451c-b73b-8f72e36f299b",
+      "name": "Call 'AutoRelease Tool - search_imports'",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
       "position": [
-        1360,
-        416
-      ]
-    },
-    {
+        1616,
+        464
+      ],
       "parameters": {
         "workflowId": {
           "__rl": true,
@@ -248,8 +260,8 @@
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
-            "repo": "={{ $fromAI('repo', ``, 'string') }}",
-            "sha": "={{ $fromAI('sha', ``, 'string') }}",
+            "repo": "={{ $fromAI('repo', 'the repository as owner/name, copied exactly from the evidence field repository', 'string') }}",
+            "sha": "={{ $fromAI('sha', 'the full 40-character commit SHA to search, copied exactly from the evidence field head_sha (never a tool-call id)', 'string') }}",
             "package": "={{ $fromAI('package', 'the package/module name to search for, e.g. yaml or PIL', 'string') }}"
           },
           "matchingColumns": [],
@@ -288,23 +300,9 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": false
         }
-      },
-      "id": "b3406e53-45db-451c-b73b-8f72e36f299b",
-      "name": "Call 'AutoRelease Tool - search_imports'",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        1616,
-        464
-      ]
+      }
     },
     {
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "autorelease/validate",
-        "responseMode": "lastNode",
-        "options": {}
-      },
       "id": "wh-validate-trigger-1",
       "name": "Validate Webhook",
       "webhookId": "wh-validate-1789729163189",
@@ -313,12 +311,15 @@
       "position": [
         -224,
         -160
-      ]
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "autorelease/validate",
+        "responseMode": "lastNode",
+        "options": {}
+      }
     },
     {
-      "parameters": {
-        "jsCode": "const raw = $input.first().json;\nconst agentText = raw.output || '';\n// Strip markdown code fences if the model wrapped its JSON in ```json ... ```\nconst fenceMatch = agentText.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\nconst jsonText = fenceMatch ? fenceMatch[1].trim() : agentText.trim();\n\nlet parsed = null;\nlet parseError = null;\ntry {\n  parsed = JSON.parse(jsonText);\n} catch (e) {\n  parseError = e.message;\n}\n\n// Pull the deterministic evidence context back in -- the validation gate checks\n// the agent's claims against this, not against the agent's own say-so.\nconst context = $('Build Validation Context').first().json;\n\nreturn [{\n  json: {\n    agent_raw_output: agentText,\n    agent_parsed: parsed,\n    agent_parse_error: parseError,\n    context: context\n  }\n}];"
-      },
       "id": "parse-agent-output-1",
       "name": "Parse Agent Output",
       "type": "n8n-nodes-base.code",
@@ -326,12 +327,12 @@
       "position": [
         1520,
         176
-      ]
+      ],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst agentText = raw.output || '';\n// Set when the agent node itself failed (its On Error setting passes the error on).\nconst agentError = raw.error ? String(raw.error) : null;\n\n// LLM responses arrive in more shapes than \"just the JSON object\", and one\n// strict JSON.parse turns a perfectly good analysis into a 0%-confidence\n// fail-safe comment. Observed live (execution 523): GLM emitted a prose\n// preamble AND its response was truncated mid-object, so the closing fence\n// never arrived, the fence regex matched nothing, and JSON.parse was handed\n// the prose. The analysis itself was correct and was thrown away.\n//\n// Strategies are tried most-trustworthy first, and which one succeeded is\n// reported downstream -- a recovered response is never passed off as a clean one.\nfunction tryParse(t) {\n  try { return JSON.parse(t); } catch (e) { return null; }\n}\n\n// Walks to the matching close brace, respecting strings and escapes, so a\n// brace inside a summary string cannot terminate the object early.\nfunction extractBalanced(text) {\n  const start = text.indexOf('{');\n  if (start < 0) return null;\n  let depth = 0, inStr = false, esc = false;\n  for (let i = start; i < text.length; i++) {\n    const ch = text[i];\n    if (esc) { esc = false; continue; }\n    if (ch === '\\\\') { esc = true; continue; }\n    if (ch === '\"') { inStr = !inStr; continue; }\n    if (inStr) continue;\n    if (ch === '{') depth++;\n    else if (ch === '}') { depth--; if (depth === 0) return { frag: text.slice(start, i + 1), complete: true }; }\n  }\n  return { frag: text.slice(start), complete: false };\n}\n\n// Truncated object: cut back to the last point that parses once the still-open\n// brackets are closed. Lossy by construction -- callers must label it.\nfunction repairTruncated(frag) {\n  const closeAt = (cut) => {\n    let inStr = false, esc = false;\n    const stack = [];\n    for (let i = 0; i <= cut; i++) {\n      const ch = frag[i];\n      if (esc) { esc = false; continue; }\n      if (ch === '\\\\') { esc = true; continue; }\n      if (ch === '\"') { inStr = !inStr; continue; }\n      if (inStr) continue;\n      if (ch === '{') stack.push('}');\n      else if (ch === '[') stack.push(']');\n      else if (ch === '}' || ch === ']') stack.pop();\n    }\n    if (inStr) return null;\n    let out = frag.slice(0, cut + 1).replace(/,\\s*$/, '');\n    while (stack.length) out += stack.pop();\n    return out;\n  };\n\n  let attempts = 0;\n  for (let i = frag.length - 1; i >= 0 && attempts < 800; i--) {\n    const ch = frag[i];\n    if (ch !== '\"' && ch !== '}' && ch !== ']' && !/[0-9a-zA-Z]/.test(ch)) continue;\n    attempts++;\n    const candidate = closeAt(i);\n    if (!candidate) continue;\n    const parsed = tryParse(candidate);\n    if (parsed && typeof parsed === 'object' && parsed.decision) return parsed;\n  }\n  return null;\n}\n\nlet parsed = null;\nlet parseError = null;\nlet strategy = null;\n\n// 1. clean JSON\nparsed = tryParse(agentText.trim());\nif (parsed) strategy = 'direct';\n\n// 2. properly closed markdown fence\nif (!parsed) {\n  const m = agentText.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\n  if (m) { parsed = tryParse(m[1].trim()); if (parsed) strategy = 'fenced'; }\n}\n\n// 3. opening fence with no closing fence (truncated response)\nif (!parsed) {\n  const m = agentText.match(/```(?:json)?\\s*([\\s\\S]*)$/);\n  if (m) { parsed = tryParse(m[1].trim()); if (parsed) strategy = 'unclosed_fence'; }\n}\n\n// 4. JSON object embedded anywhere in prose\nlet balanced = null;\nif (!parsed) {\n  balanced = extractBalanced(agentText);\n  if (balanced) { parsed = tryParse(balanced.frag); if (parsed) strategy = 'embedded_object'; }\n}\n\n// 5. last resort: repair a truncated object\nif (!parsed && balanced && !balanced.complete) {\n  parsed = repairTruncated(balanced.frag);\n  if (parsed) strategy = 'repaired_truncated';\n}\n\nif (!parsed) {\n  parseError = agentError\n    ? 'the agent failed before answering: ' + agentError\n    : 'no parseable JSON object found in agent output (length ' + agentText.length + ')';\n}\n\n// Pull the deterministic evidence context back in -- the validation gate checks\n// the agent's claims against this, not against the agent's own say-so.\nconst context = $('Build Validation Context').first().json;\n\nreturn [{\n  json: {\n    agent_raw_output: agentText,\n    agent_parsed: parsed,\n    agent_parse_error: parseError,\n    agent_parse_strategy: strategy,\n    agent_attempt: $runIndex + 1,\n    agent_output_truncated: !!(balanced && !balanced.complete),\n    context: context\n  }\n}];"
+      }
     },
     {
-      "parameters": {
-        "jsCode": "// Deterministic Validation Gate -- the PRD's core trust mechanism: the LLM\n// classifies (decision/confidence/reasoning), this code enforces policy. The\n// agent's own \"approve\" is NEVER taken at face value here -- every approve is\n// checked against the deterministic evidence, and every gate below can escalate\n// the decision but the agent can never talk its way past one.\nconst input = $input.first().json;\nconst agent = input.agent_parsed;\nconst context = input.context;\n\nconst overrides = [];\nlet finalDecision;\nlet finalConfidence;\n\nif (!agent || typeof agent !== 'object') {\n  finalDecision = 'review';\n  finalConfidence = 0;\n  overrides.push('Agent output could not be parsed as valid JSON (parse error: ' + (input.agent_parse_error || 'unknown') + ') -- forced to review.');\n} else {\n  const validDecisions = ['approve', 'block', 'review'];\n  let decision = validDecisions.includes(agent.decision) ? agent.decision : 'review';\n  if (!validDecisions.includes(agent.decision)) {\n    overrides.push('Agent returned an invalid decision value \"' + agent.decision + '\" -- forced to review.');\n  }\n  finalConfidence = typeof agent.confidence === 'number' ? agent.confidence : 0;\n\n  // RULE 1: a real failing test (from deterministic XML parsing, not the agent's\n  // claim) can never be silently approved.\n  const failedTestCount = context?.test_summary?.failures ?? 0;\n  if (failedTestCount > 0 && decision === 'approve') {\n    decision = 'review';\n    overrides.push('Deterministic check: ' + failedTestCount + ' test failure(s) recorded in test_summary, but agent said approve -- overridden to review.');\n  }\n\n  // RULE 2: can't approve if security evidence was unavailable (permissions\n  // error, API failure). Approving without having actually checked is not\n  // allowed -- matches PRD: insufficient evidence forces manual review.\n  const securityUnavailable = (context?.dependabot?.available === false) || (context?.code_scanning?.available === false);\n  if (securityUnavailable && decision === 'approve') {\n    decision = 'review';\n    overrides.push('Deterministic check: security evidence (Dependabot and/or Code Scanning) was unavailable, but agent said approve -- overridden to review.');\n  }\n\n  // RULE 3: low agent confidence forces human review even on an approve.\n  if (finalConfidence < 70 && decision === 'approve') {\n    decision = 'review';\n    overrides.push('Deterministic check: agent confidence ' + finalConfidence + ' is below the 70 threshold for an approve decision -- overridden to review.');\n  }\n\n  // RULE 4: HARD GATE -- a detected secret always blocks. This is a gate, not\n  // a score deduction: the agent cannot reason its way past it.\n  const codeScanningAlerts = context?.code_scanning?.alerts || [];\n  const hasSecretAlert = codeScanningAlerts.some((a) => {\n    const tool = (a.tool || '').toLowerCase();\n    const rule = (a.rule_id || '').toLowerCase();\n    return tool.includes('gitleaks') || rule.includes('secret') || rule.includes('api-key') || rule.includes('credential');\n  });\n  if (hasSecretAlert && decision !== 'block') {\n    decision = 'block';\n    overrides.push('HARD GATE: a secret-detection alert (gitleaks/credential pattern) is present -- decision forced to block regardless of agent output. This gate cannot be overridden.');\n  }\n\n  finalDecision = decision;\n}\n\nreturn [{\n  json: {\n    repository: context?.repository ?? null,\n    run_id: context?.run_id ?? null,\n    head_sha: context?.head_sha ?? null,\n    html_url: context?.html_url ?? null,\n    agent_decision: agent?.decision ?? null,\n    agent_confidence: agent?.confidence ?? null,\n    agent_summary: agent?.summary ?? null,\n    agent_test_findings: agent?.test_findings ?? [],\n    agent_security_findings: agent?.security_findings ?? [],\n    agent_validated_findings: agent?.validated_findings ?? [],\n    agent_required_actions: agent?.required_actions ?? [],\n    final_decision: finalDecision,\n    final_confidence: finalConfidence,\n    deterministic_overrides: overrides,\n    was_overridden: overrides.length > 0,\n    evaluated_at: new Date().toISOString()\n  }\n}];"
-      },
       "id": "validation-gate-1",
       "name": "Deterministic Validation Gate",
       "type": "n8n-nodes-base.code",
@@ -339,9 +340,20 @@
       "position": [
         1760,
         176
-      ]
+      ],
+      "parameters": {
+        "jsCode": "// Deterministic Validation Gate -- the PRD's core trust mechanism: the LLM\n// classifies (decision/confidence/reasoning), this code enforces policy. The\n// agent's own \"approve\" is NEVER taken at face value here -- every approve is\n// checked against the deterministic evidence, and every gate below can escalate\n// the decision but the agent can never talk its way past one.\nconst input = $input.first().json;\nconst agent = input.agent_parsed;\nconst context = input.context;\n\nconst overrides = [];\nlet finalDecision;\nlet finalConfidence;\n\nif (!agent || typeof agent !== 'object') {\n  finalDecision = 'review';\n  finalConfidence = 0;\n  overrides.push('Agent output could not be parsed as valid JSON (parse error: ' + (input.agent_parse_error || 'unknown') + ') -- forced to review.');\n} else {\n  const validDecisions = ['approve', 'block', 'review'];\n  let decision = validDecisions.includes(agent.decision) ? agent.decision : 'review';\n  if (!validDecisions.includes(agent.decision)) {\n    overrides.push('Agent returned an invalid decision value \"' + agent.decision + '\" -- forced to review.');\n  }\n  finalConfidence = typeof agent.confidence === 'number' ? agent.confidence : 0;\n\n  // A recovered response is never presented as a clean one.\n  if ((input.agent_attempt || 1) > 1) {\n    overrides.push('Note: the agent\\'s first response contained no verdict; it was asked once more and this verdict is from attempt ' + input.agent_attempt + '.');\n  }\n  if (input.agent_parse_strategy && !['direct', 'fenced'].includes(input.agent_parse_strategy)) {\n    overrides.push('Note: the agent response was not clean JSON (recovered via: ' + input.agent_parse_strategy + ')' +\n      (input.agent_output_truncated ? ' and was truncated mid-object, so findings below may be incomplete' : '') + '.');\n  }\n\n  // RULE 1: a real failing test (from deterministic XML parsing, not the agent's\n  // claim) can never be silently approved.\n  const failedTestCount = context?.test_summary?.failures ?? 0;\n  if (failedTestCount > 0 && decision === 'approve') {\n    decision = 'review';\n    // A failure that is independently proven flaky AND pre-existing is still a\n    // red CI run a human should sign off on -- but saying \"agent said approve\"\n    // misrepresents why. State the real reason.\n    const fv = input.flaky_verification || [];\n    const allFlakyPreExisting = fv.length > 0 && fv.every((v) => v.deterministic_class === 'flaky' && v.attribution === 'pre_existing');\n    if (allFlakyPreExisting) {\n      overrides.push('Deterministic check: ' + failedTestCount + ' test failure(s) in this run, independently re-verified as flaky AND pre-existing -- not attributed to this PR. A red CI run still requires human sign-off, so approve is raised to review.');\n    } else {\n      overrides.push('Deterministic check: ' + failedTestCount + ' test failure(s) recorded in test_summary, but agent said approve -- overridden to review.');\n    }\n  }\n\n  // RULE 2: can't approve if security evidence was unavailable (permissions\n  // error, API failure). Approving without having actually checked is not\n  // allowed -- matches PRD: insufficient evidence forces manual review.\n  const securityUnavailable = (context?.dependabot?.available === false) || (context?.code_scanning?.available === false);\n  if (securityUnavailable && decision === 'approve') {\n    decision = 'review';\n    overrides.push('Deterministic check: security evidence (Dependabot and/or Code Scanning) was unavailable, but agent said approve -- overridden to review.');\n  }\n\n  // RULE 3: low agent confidence forces human review even on an approve.\n  if (finalConfidence < 70 && decision === 'approve') {\n    decision = 'review';\n    overrides.push('Deterministic check: agent confidence ' + finalConfidence + ' is below the 70 threshold for an approve decision -- overridden to review.');\n  }\n\n  // RULE 4: HARD GATE -- a detected secret always blocks. This is a gate, not\n  // a score deduction: the agent cannot reason its way past it.\n  const codeScanningAlerts = context?.code_scanning?.alerts || [];\n  const hasSecretAlert = codeScanningAlerts.some((a) => {\n    const tool = (a.tool || '').toLowerCase();\n    const rule = (a.rule_id || '').toLowerCase();\n    return tool.includes('gitleaks') || rule.includes('secret') || rule.includes('api-key') || rule.includes('credential');\n  });\n  if (hasSecretAlert && decision !== 'block') {\n    decision = 'block';\n    overrides.push('HARD GATE: a secret-detection alert (gitleaks/credential pattern) is present -- decision forced to block regardless of agent output. This gate cannot be overridden.');\n  }\n\n    // RULE 5: independently-verified flaky/regression mismatch -- this never\n  // trusts the agent's own classification at face value. A separate,\n  // deterministic re-call of get_test_history (not the agent's tool call) is\n  // cross-checked against what the agent claimed. The dangerous direction is\n  // the agent calling a genuine regression \"flaky\" (a false negative that\n  // could wave through a real bug); that always forces at least review.\n  const flakyVerification = input.flaky_verification || [];\n  const dangerousMismatches = flakyVerification.filter(\n    (v) => v.agrees === false && v.agent_class_normalized === 'flaky' && v.deterministic_class === 'regression'\n  );\n  const otherMismatches = flakyVerification.filter(\n    (v) => v.agrees === false && !(v.agent_class_normalized === 'flaky' && v.deterministic_class === 'regression')\n  );\n  if (dangerousMismatches.length > 0) {\n    if (decision !== 'block') decision = 'review';\n    overrides.push(\n      'HARD CHECK: independent re-verification of ' +\n        dangerousMismatches.map((m) => m.test_name).join(', ') +\n        ' via a fresh get_test_history call shows NO prior failures on main (deterministic_class=regression), but the agent classified it as flaky (' +\n        dangerousMismatches.map((m) => '\"' + m.agent_claimed + '\"').join('; ') +\n        ') -- overridden to review regardless of agent decision.'\n    );\n  }\n  if (otherMismatches.length > 0) {\n    overrides.push(\n      'Note: independent re-verification disagrees with the agent on ' +\n        otherMismatches.map((m) => m.test_name + ' (agent: ' + m.agent_class_normalized + ', re-verified: ' + m.deterministic_class + ')').join('; ') +\n        ' -- lower-severity mismatch, not forcing a decision change, but flagged for review.'\n    );\n  }\n\n  // RULE 6: findings already filed as tracked issues are skipped by the\n  // investigation to save tool calls (dedup), but they are still real, still\n  // open, and still shipping in this release. Skipping the re-investigation\n  // must never quietly become approving the vulnerability.\n  const knownTracked = context?.dependabot?.known_tracked || [];\n  const trackedSevere = knownTracked.filter((k) => ['critical', 'high'].includes(String(k.severity || '').toLowerCase()));\n  if (trackedSevere.length > 0 && decision === 'approve') {\n    decision = 'review';\n    overrides.push(\n      'Deterministic check: ' + trackedSevere.length + ' previously-tracked critical/high finding(s) are still open (' +\n      trackedSevere.map((k) => '#' + k.tracked_issue).join(', ') +\n      ') -- skipped this run for efficiency, but still unresolved, so an approve is overridden to review.'\n    );\n  }\n\n  // RULE 8: semantic divergence. The probe compares the app's ACTUAL responses\n  // on both sides of the PR, so this fires on changes no test asserted. A\n  // coherence break means a returned value stopped matching the request that\n  // produced it -- deterministic, and independent of anything the agent says.\n  const sem = context?.semantic || {};\n  const coherenceBreaks = sem.available ? (sem.coherence_break_count || 0) : 0;\n  // Purely additive behaviour changes are excluded by the detector, so this\n  // never counts a new endpoint as something this PR broke.\n  const semanticRegressions = sem.available ? (sem.regression_candidate_count || 0) : 0;\n\n  if (coherenceBreaks > 0 && decision === 'approve') {\n    decision = 'review';\n    overrides.push(\n      'Deterministic check: ' + coherenceBreaks + ' response value(s) now contradict the request that produced them' +\n      ', on a build where the test suite passed. The agent approved anyway -- raised to review.'\n    );\n  }\n\n  // RULE 7: scope (jury feedback). A finding that pre-dates this PR must not\n  // be charged to this PR. A gate that blocks a README edit over the repo's\n  // existing dependency debt is a gate developers learn to ignore.\n  //\n  // Deliberately downgrades block -> review, never -> approve: the findings are\n  // still real and still visible, they just are not this PR's fault. Only\n  // applies when scope was actually determined; unknown scope changes nothing.\n  const scope7 = context?.pr_scope || { available: false };\n  const dep7 = context?.dependabot || {};\n  const cs7 = context?.code_scanning || {};\n  const introducedFindings = (dep7.introduced_by_pr_count || 0) + (cs7.introduced_by_pr_count || 0) + semanticRegressions;\n  const introducedTests = (input.flaky_verification || []).filter((v) => v.attribution === 'possibly_introduced').length;\n\n  if (scope7.available && introducedFindings === 0 && introducedTests === 0 && decision === 'block') {\n    decision = 'review';\n    overrides.push(\n      'Deterministic check: this PR changes only ' + (scope7.changed_files || []).join(', ') +\n      ' and introduced none of the findings above -- all of them pre-date it. Downgraded from block to review: ' +\n      'the findings stay visible and tracked, but this PR is not blamed for them.'\n    );\n  }\n\n  // RULE 9: HARD GATE -- a regression this PR introduced always blocks.\n  // Same stance as the secret gate: not something the agent can talk down.\n  // \"Regression\" here is the deterministic cross-check's verdict, not the\n  // agent's: a fresh get_test_history call found this test passing on main\n  // with NO prior failures, and the PR changes code. Requires at least\n  // MIN_CLEAN_RUNS clean runs so one lucky pass on a brand-new test can't\n  // masquerade as a stable baseline.\n  const MIN_CLEAN_RUNS = 3;\n  const provenRegressions = (input.flaky_verification || []).filter((v) =>\n    v.deterministic_class === 'regression' &&\n    v.attribution === 'possibly_introduced' &&\n    ((v.deterministic_evidence && v.deterministic_evidence.pass_count) || 0) >= MIN_CLEAN_RUNS\n  );\n  // When the agent already blocked, say so anyway: the reader should know this\n  // block would stand even if the agent had approved. That independence is the\n  // point -- the agent can be wrong, it just cannot be wrong alone.\n  if (provenRegressions.length > 0 && decision === 'block') {\n    overrides.push(\n      'Independently confirmed: ' + provenRegressions.map((v) => v.test_name + ' (' + v.deterministic_evidence.pass_count +\n        ' clean runs on main, 0 prior failures)').join('; ') +\n      ' now fail(s) on a PR that changes code. The regression hard gate is met on its own, so this block does not depend on the agent.'\n    );\n  }\n  if (provenRegressions.length > 0 && decision !== 'block') {\n    const before = decision;\n    decision = 'block';\n    overrides.push(\n      'HARD GATE: ' + provenRegressions.map((v) => v.test_name + ' (' + v.deterministic_evidence.pass_count +\n        ' clean runs on main, 0 prior failures)').join('; ') +\n      ' now fail(s), and this PR changes code (' + ((context?.pr_scope?.code_files) || []).join(', ') +\n      '). A test with a clean history that starts failing on this change is a regression, not flakiness -- ' +\n      before + ' raised to block.'\n    );\n  }\n\n  // RULE 10: HARD GATE -- a business rule from the BASE contract that held\n  // before this change and is broken by it always blocks. The rule and its\n  // checker come from the base commit (see ci.yml), so the PR cannot have\n  // loosened them; the evaluation is arithmetic in CI, not a model judgement.\n  // A changed value alone can be intended; a broken invariant cannot, unless\n  // the contract itself is changed -- which is its own reviewable diff.\n  const semInv = context?.semantic || {};\n  const brokenRules = semInv.available\n    ? (semInv.divergences || []).filter((d) => d.kind === 'invariant_violation')\n    : [];\n  const newRuleFailures = semInv.available\n    ? (semInv.divergences || []).filter((d) => d.kind === 'invariant_violation_new')\n    : [];\n  if (brokenRules.length > 0) {\n    const names = Array.from(new Set(brokenRules.map((d) => String(d.path).replace('(rule) ', '')))).join(', ');\n    if (decision !== 'block') {\n      const before = decision;\n      decision = 'block';\n      overrides.push('HARD GATE: ' + brokenRules.length + ' business-rule check(s) held on the base commit and fail on this change (' +\n        names + '). ' + before + ' raised to block.');\n    } else {\n      overrides.push('Independently confirmed: ' + brokenRules.length + ' business-rule check(s) held on the base commit and fail on this change (' +\n        names + '). The business-rule hard gate is met on its own, so this block does not depend on the agent.');\n    }\n  }\n  if (newRuleFailures.length > 0 && decision === 'approve') {\n    decision = 'review';\n    overrides.push('Deterministic check: a new endpoint fails ' + newRuleFailures.length + ' of its business-rule checks on arrival -- raised to review.');\n  }\n\n  finalDecision = decision;\n}\n\nreturn [{\n  json: {\n    repository: context?.repository ?? null,\n    run_id: context?.run_id ?? null,\n    head_sha: context?.head_sha ?? null,\n    html_url: context?.html_url ?? null,\n    agent_decision: agent?.decision ?? null,\n    agent_confidence: agent?.confidence ?? null,\n    agent_summary: agent?.summary ?? null,\n    agent_test_findings: agent?.test_findings ?? [],\n    agent_security_findings: agent?.security_findings ?? [],\n    agent_validated_findings: agent?.validated_findings ?? [],\n    agent_required_actions: agent?.required_actions ?? [],\n    final_decision: finalDecision,\n    final_confidence: finalConfidence,\n    deterministic_overrides: overrides,\n    flaky_verification: input.flaky_verification || [],\n    known_tracked: context?.dependabot?.known_tracked || [],\n    pr_scope: context?.pr_scope || null,\n    semantic: context?.semantic || null,\n    scoped_alerts: [\n      ...(context?.dependabot?.alerts || []),\n      ...(context?.code_scanning?.alerts || []),\n    ].map((a) => ({\n      dependency: a.dependency || a.rule_id || a.path || null,\n      ghsa: a.ghsa || a.cve || null,\n      severity: a.severity || null,\n      attribution: a.attribution || 'unknown',\n      attribution_reason: a.attribution_reason || null,\n    })),\n    tracked_skipped_count: context?.dependabot?.tracked_skipped_count || 0,\n    was_overridden: overrides.length > 0,\n    evaluated_at: new Date().toISOString()\n  }\n}];"
+      }
     },
     {
+      "id": "post-commit-status-1",
+      "name": "Post Commit Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2000,
+        176
+      ],
       "parameters": {
         "method": "POST",
         "url": "=https://api.github.com/repos/{{ $json.repository }}/statuses/{{ $json.head_sha }}",
@@ -359,14 +371,6 @@
           }
         }
       },
-      "id": "post-commit-status-1",
-      "name": "Post Commit Status",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.5,
-      "position": [
-        2000,
-        176
-      ],
       "credentials": {
         "httpHeaderAuth": {
           "id": "KmkmjtyH6wK2g6pW",
@@ -375,9 +379,6 @@
       }
     },
     {
-      "parameters": {
-        "jsCode": "// Combine the deterministic verdict with confirmation that GitHub was updated.\nconst gate = $('Deterministic Validation Gate').first().json;\nconst statusResponse = $input.first().json;\nconst statusPosted = !(statusResponse && (statusResponse.message || statusResponse.status === '404' || statusResponse.status === '422'));\n\nreturn [{\n  json: Object.assign({}, gate, {\n    github_status_posted: statusPosted,\n    github_status_response: statusResponse\n  })\n}];"
-      },
       "id": "final-output-1",
       "name": "Final Output",
       "type": "n8n-nodes-base.code",
@@ -385,9 +386,20 @@
       "position": [
         2240,
         176
-      ]
+      ],
+      "parameters": {
+        "jsCode": "// Combine the deterministic verdict with confirmation that GitHub was updated.\nconst gate = $('Deterministic Validation Gate').first().json;\nconst statusResponse = $input.first().json;\nconst statusPosted = !(statusResponse && (statusResponse.message || statusResponse.status === '404' || statusResponse.status === '422'));\n\nreturn [{\n  json: Object.assign({}, gate, {\n    github_status_posted: statusPosted,\n    github_status_response: statusResponse\n  })\n}];"
+      }
     },
     {
+      "id": "call-search-symbol-usage-1",
+      "name": "Call 'AutoRelease Tool - search_symbol_usage'",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1632,
+        640
+      ],
       "parameters": {
         "description": "Search the repository for call sites of specific qualified function names (e.g. \"yaml.full_load\"), to determine whether a vulnerable function from a CVE advisory is actually invoked anywhere in the code -- not just imported. Use this AFTER get_advisory has given you a list of vulnerable_functions, to decide reachable vs unreachable.",
         "workflowId": {
@@ -400,7 +412,7 @@
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
-            "sha": "={{ $fromAI('sha', ``, 'string') }}",
+            "sha": "={{ $fromAI('sha', 'the full 40-character commit SHA to search, copied exactly from the evidence field head_sha (never a tool-call id)', 'string') }}",
             "symbols": "={{ $fromAI('symbols', 'comma-separated qualified function names, e.g. yaml.full_load,yaml.unsafe_load', 'string') }}"
           },
           "matchingColumns": [],
@@ -429,17 +441,17 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": false
         }
-      },
-      "id": "call-search-symbol-usage-1",
-      "name": "Call 'AutoRelease Tool - search_symbol_usage'",
+      }
+    },
+    {
+      "id": "call-get-test-history-1",
+      "name": "Call 'AutoRelease Tool - get_test_history'",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
       "position": [
-        1632,
-        640
-      ]
-    },
-    {
+        1456,
+        672
+      ],
       "parameters": {
         "description": "For a specific failed test, fetch its pass/fail status across the last several completed CI runs on the main branch (not this PR/run). Use this to distinguish a KNOWN FLAKY test (has failed intermittently on main before, unrelated to any current change) from a NEW REGRESSION (has always passed on main until now). test_name should be the full dotted name, e.g. \"tests.test_flaky.test_cart_total_under_load_flaky\".",
         "workflowId": {
@@ -453,7 +465,7 @@
           "mappingMode": "defineBelow",
           "value": {
             "test_name": "={{ $fromAI('test_name', 'full dotted test name, e.g. tests.test_flaky.test_cart_total_under_load_flaky', 'string') }}",
-            "repo": "={{ $fromAI('repo', ``, 'string') }}",
+            "repo": "={{ $fromAI('repo', 'the repository as owner/name, copied exactly from the evidence field repository', 'string') }}",
             "branch": "={{ $fromAI('branch', 'defaults to main', 'string') }}"
           },
           "matchingColumns": [],
@@ -492,20 +504,9 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": false
         }
-      },
-      "id": "call-get-test-history-1",
-      "name": "Call 'AutoRelease Tool - get_test_history'",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        1456,
-        672
-      ]
+      }
     },
     {
-      "parameters": {
-        "jsCode": "const items = $input.all();\nconst realItems = items.filter((i) => i.json && Object.keys(i.json).length > 0);\nif (realItems.length === 1) {\n  const only = realItems[0].json;\n  const looksLikeError = only && typeof only === 'object' && !Array.isArray(only) && (only.message || only.status) && !Array.isArray(only.alerts);\n  if (looksLikeError) return [{ json: only }];\n}\nreturn [{ json: { alerts: realItems.map((i) => i.json) } }];"
-      },
       "id": "ensure-dependabot-response-1",
       "name": "Ensure Dependabot Response",
       "type": "n8n-nodes-base.code",
@@ -513,12 +514,12 @@
       "position": [
         736,
         -112
-      ]
-    },
-    {
+      ],
       "parameters": {
         "jsCode": "const items = $input.all();\nconst realItems = items.filter((i) => i.json && Object.keys(i.json).length > 0);\nif (realItems.length === 1) {\n  const only = realItems[0].json;\n  const looksLikeError = only && typeof only === 'object' && !Array.isArray(only) && (only.message || only.status) && !Array.isArray(only.alerts);\n  if (looksLikeError) return [{ json: only }];\n}\nreturn [{ json: { alerts: realItems.map((i) => i.json) } }];"
-      },
+      }
+    },
+    {
       "id": "ensure-codescanning-response-1",
       "name": "Ensure Code Scanning Response",
       "type": "n8n-nodes-base.code",
@@ -526,7 +527,780 @@
       "position": [
         640,
         368
-      ]
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst realItems = items.filter((i) => i.json && Object.keys(i.json).length > 0);\nif (realItems.length === 1) {\n  const only = realItems[0].json;\n  const looksLikeError = only && typeof only === 'object' && !Array.isArray(only) && (only.message || only.status) && !Array.isArray(only.alerts);\n  if (looksLikeError) return [{ json: only }];\n}\nreturn [{ json: { alerts: realItems.map((i) => i.json) } }];"
+      }
+    },
+    {
+      "id": "groq-chat-model-1",
+      "name": "Groq Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "retryOnFail": false,
+      "position": [
+        1152,
+        500
+      ],
+      "parameters": {
+        "model": "openai/gpt-oss-20b",
+        "options": {}
+      },
+      "credentials": {
+        "groqApi": {
+          "id": "IsGI53UdnSup2hBb",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "id": "openrouter-chat-model-1",
+      "name": "OpenRouter Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        600
+      ],
+      "parameters": {
+        "model": "deepseek/deepseek-v4-flash-0731:free",
+        "options": {}
+      },
+      "credentials": {
+        "openRouterApi": {
+          "id": "mWVOTt8RKczyHHOD",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "id": "list-failed-tests-verify-1",
+      "name": "List Failed Tests For Verification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        360
+      ],
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst context = input.context || {};\nconst failedTests = context.failed_tests || [];\n\n// Always emit >=1 item -- n8n skips a downstream node entirely on 0 input\n// items, so a real \"no failed tests\" case (the common case) must not\n// silently break the chain. The sentinel is routed around the Execute\n// Workflow call by the IF node right after this.\nif (failedTests.length === 0) {\n  return [{ json: { _no_failed_tests: true } }];\n}\n\nreturn failedTests.map((t) => ({\n  json: {\n    test_name: (t.classname ? t.classname + '.' : '') + t.name,\n    repo: context.repository || '',\n    // Always 'main' -- deliberately NOT context.branch. get_test_history\n// exists to compare against the STABLE branch's history; a PR run\n// reports its OWN branch here, which has little/no history of its own.\n// (Bug found live: using context.branch here caused a real flaky test\n// to be wrongly re-derived as a regression, since the PR branch only\n// had 1 run of its own history vs main's real 6-run flaky pattern.)\n    branch: 'main',\n  },\n}));"
+      }
+    },
+    {
+      "id": "has-failed-tests-verify-if-1",
+      "name": "Has Failed Tests To Verify",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1660,
+        360
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cond-has-test-name",
+              "leftValue": "={{ $json.test_name }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals",
+                "name": "filter.operator.notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "verify-get-test-history-1",
+      "name": "Run get_test_history (verification)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1800,
+        300
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "Tk8sieEVuYeD6eLr",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/Tk8sieEVuYeD6eLr",
+          "cachedResultName": "AutoRelease Tool - get_test_history"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "test_name": "={{ $json.test_name }}",
+            "repo": "={{ $json.repo }}",
+            "branch": "={{ $json.branch }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "test_name",
+              "displayName": "test_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "repo",
+              "displayName": "repo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "branch",
+              "displayName": "branch",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "mode": "each"
+      }
+    },
+    {
+      "id": "cross-check-flaky-1",
+      "name": "Cross-Check Flaky Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        360
+      ],
+      "parameters": {
+        "jsCode": "// Independently re-verifies every flaky/regression classification the agent\n// made. This does NOT trust the agent's own math: it re-calls get_test_history\n// itself (upstream Execute Workflow node) and derives its own classification\n// from the raw history -- if the two disagree, that's a real signal for the\n// Gate. The agent cannot talk its way past a contradiction in the evidence.\n//\n// Two tiers of evidence, not blended:\n//  - PROOF (same_sha_contradiction): the exact same commit produced both a\n//    pass and a fail across different re-runs. Since the code did not change\n//    between those runs, this is airtight -- it cannot be a code regression,\n//    only environmental/non-deterministic flakiness. This is checked first.\n//  - PATTERN (mixed_pattern): pass/fail mixed across DIFFERENT commits, with\n//    no single contradicting SHA found. Suggestive of flakiness, not proof --\n//    labeled explicitly as weaker so it's never presented as \"definite.\"\nconst agentOutput = $('Parse Agent Output').first().json;\nconst agentFindings = (agentOutput.agent_parsed && agentOutput.agent_parsed.test_findings) || [];\nconst items = $input.all();\n\nconst isSentinel = items.length > 0 && items.every((i) => i.json._no_failed_tests === true);\nlet verifications = [];\n\nfunction classifyFromHistory(result) {\n  if (!result || result.runs_checked === 0 || (result.pass_count === 0 && result.fail_count === 0)) {\n    return { cls: 'insufficient_evidence', proof: 'none' };\n  }\n\n  const bySha = {};\n  for (const run of result.history || []) {\n    if (!run.head_sha) continue;\n    if (!bySha[run.head_sha]) bySha[run.head_sha] = new Set();\n    bySha[run.head_sha].add(run.status);\n  }\n  const contradictingSha = Object.keys(bySha).find((sha) => bySha[sha].has('pass') && bySha[sha].has('fail'));\n  if (contradictingSha) {\n    return { cls: 'flaky', proof: 'same_sha_contradiction', sha: contradictingSha };\n  }\n\n  if (result.fail_count > 0 && result.pass_count > 0) {\n    return { cls: 'flaky', proof: 'mixed_pattern' };\n  }\n  if (result.fail_count === 0 && result.pass_count > 0) {\n    return { cls: 'regression', proof: 'no_prior_failures' };\n  }\n  return { cls: 'insufficient_evidence', proof: 'none' };\n}\n\n\n// --- TEST ATTRIBUTION (jury feedback) -----------------------------------\n// \"Why is a flaky test being reported on a README-only PR?\" The honest answer\n// has to come from the diff and from main's history, not from the model.\n//\n// Each reason below is independently sufficient and independently checkable;\n// they are collected rather than short-circuited so the comment can show all\n// of them. Absence of a reason is NOT proof the PR caused the failure, so the\n// fallback label is 'possibly_introduced', never 'introduced'.\nlet scope = { available: false, reason_unavailable: 'scope lookup did not run' };\ntry {\n  scope = $('Ensure PR Scope').first().json.pr_scope || scope;\n} catch (e) {\n  scope = { available: false, reason_unavailable: 'scope lookup did not run' };\n}\n\nfunction attributeTest(result, det) {\n  const reasons = [];\n\n  if (scope.available && !scope.touches_code) {\n    reasons.push(`This PR changes no code files (only: ${(scope.changed_files || []).join(', ')}), so it cannot have altered test behaviour.`);\n  }\n  if ((result.fail_count || 0) > 0) {\n    reasons.push(`This test already failed ${result.fail_count} time(s) on main, independently of this PR.`);\n  }\n  if (det.proof === 'same_sha_contradiction' && det.sha) {\n    reasons.push(`Commit ${String(det.sha).slice(0, 10)} on main both passed and failed, so the test is non-deterministic regardless of this PR.`);\n  }\n\n  if (reasons.length > 0) return { attribution: 'pre_existing', attribution_reasons: reasons };\n  if (!scope.available) {\n    return { attribution: 'unknown', attribution_reasons: [`PR scope unavailable (${scope.reason_unavailable}) -- cannot attribute this failure.`] };\n  }\n  return {\n    attribution: 'possibly_introduced',\n    attribution_reasons: [`This PR changes code (${(scope.code_files || []).join(', ')}) and this test has no prior failures on main.`],\n  };\n}\n\nfunction normalizeAgentClass(text) {\n  const t = (text || '').toUpperCase();\n  if (t.includes('FLAKY')) return 'flaky';\n  if (t.includes('REGRESSION')) return 'regression';\n  if (t.includes('INSUFFICIENT')) return 'insufficient_evidence';\n  return 'unknown';\n}\n\nif (!isSentinel) {\n  verifications = items.map((item) => {\n    const result = item.json;\n    // GLM has returned test_findings as an array of plain STRINGS as well as\n    // an array of objects, for the same prompt. A string finding used to match\n    // nothing, which silently dropped the entire deterministic cross-check from\n    // the report -- our own headline evidence, lost to the model's formatting.\n    const shortName = (result.test_name || '').split('.').pop();\n    const agentFinding = agentFindings.find((f) => {\n      if (typeof f === 'string') {\n        if (!result.test_name) return false;\n        return f.includes(result.test_name) || (shortName && f.includes(shortName));\n      }\n      const fName = f.test_name || f.name || f.test || '';\n      if (!fName || !result.test_name) return false;\n      return fName === result.test_name || fName.endsWith(result.test_name) || result.test_name.endsWith(fName);\n    });\n    const agentFindingText = typeof agentFinding === 'string'\n      ? agentFinding\n      : (agentFinding ? (agentFinding.classification || agentFinding.status || '') : '');\n    const det = classifyFromHistory(result);\n    const agentClass = agentFinding ? normalizeAgentClass(agentFindingText) : 'not_reported';\n    const agrees = !agentFinding ? null : agentClass === det.cls;\n\n    return {\n      test_name: result.test_name,\n      agent_claimed: agentFinding ? String(agentFindingText).slice(0, 300) : '(agent reported no finding for this test)',\n      agent_class_normalized: agentClass,\n      deterministic_class: det.cls,\n      proof_type: det.proof,\n      contradicting_sha: det.sha || null,\n      deterministic_evidence: {\n        runs_checked: result.runs_checked,\n        pass_count: result.pass_count,\n        fail_count: result.fail_count,\n        unknown_count: result.unknown_count,\n      },\n      agrees,\n      ...attributeTest(result, det),\n    };\n  });\n}\n\nreturn [{\n  json: {\n    ...agentOutput,\n    flaky_verification: verifications,\n  },\n}];"
+      }
+    },
+    {
+      "id": "glm-chat-model-1",
+      "name": "GLM Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        700
+      ],
+      "parameters": {
+        "model": "z-ai/glm-5.3-flash",
+        "options": {
+          "maxTokens": 8192
+        }
+      },
+      "credentials": {
+        "openRouterApi": {
+          "id": "1kTkmcpLTK2Z7w9z",
+          "name": "Z.ai GLM (5 dollar cap)"
+        }
+      }
+    },
+    {
+      "id": "find-associated-pr-1",
+      "name": "Find Associated PR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "position": [
+        2000,
+        320
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $json.repository }}/pulls?state=open&per_page=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "format-pr-comment-1",
+      "name": "Format PR Comment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "alwaysOutputData": true,
+      "position": [
+        2140,
+        320
+      ],
+      "parameters": {
+        "jsCode": "// Builds a GitHub-flavored Markdown PR comment from the Gate's verdict.\n// Different LLM providers name fields differently even given the same schema\n// instructions (confirmed tonight: DeepSeek uses test_name/alert/classification,\n// GLM uses name/dependency/status) -- every field read here tries multiple\n// candidate names and falls back to a raw JSON dump rather than silently\n// dropping a finding.\nconst gate = $('Deterministic Validation Gate').first().json;\nconst prLookupItems = $input.all().map((i) => i.json);\n// Switched from commits/{sha}/pulls (that endpoint returned an empty result\n// for this repo/PAT combo even for a same-repo open PR, confirmed via direct\n// live testing) to listing open PRs and matching by head sha client-side --\n// this endpoint is the one already proven reliable.\nconst prs = prLookupItems.filter(\n  (p) => p && typeof p === 'object' && typeof p.number === 'number' && p.head && p.head.sha === gate.head_sha\n);\n\nif (prs.length === 0) {\n  return [{ json: { _no_pr_found: true } }];\n}\n\nfunction pick(obj, keys, fallback) {\n  for (const k of keys) {\n    if (obj && obj[k] !== undefined && obj[k] !== null && obj[k] !== '') return obj[k];\n  }\n  return fallback;\n}\n\nfunction restAsText(obj, usedKeys) {\n  const parts = [];\n  for (const k of Object.keys(obj || {})) {\n    if (usedKeys.includes(k)) continue;\n    const v = obj[k];\n    if (typeof v === 'string' && v.trim()) parts.push(v.trim());\n  }\n  return parts.join(' ');\n}\n\nfunction fmtTestFinding(f) {\n  // string finding (fmtTestFinding): some models return findings as prose strings rather\n  // than objects. Render them as readable text -- dumping JSON at a developer\n  // is worse than no formatting at all.\n  if (typeof f === 'string') return '- ' + f.trim() + '\\n';\n  const name = pick(f, ['test_name', 'name', 'test'], null);\n  if (!name) {\n    // Not a per-test finding at all -- e.g. GLM sometimes adds a suite-level\n    // summary shaped like {test_suite, note} alongside real per-test entries.\n    const note = pick(f, ['note', 'detail', 'evidence'], null);\n    if (note) return '_' + note + '_\\n';\n    return '```json\\n' + JSON.stringify(f) + '\\n```\\n';\n  }\n  const cls = pick(f, ['classification', 'status'], 'unclassified');\n  let evidence = pick(f, ['evidence', 'detail', 'note'], '');\n  const action = pick(f, ['action'], '');\n  if (!evidence) evidence = restAsText(f, ['test_name', 'name', 'test', 'classification', 'status', 'action']);\n  let out = '**`' + name + '`** — ' + cls + '\\n';\n  if (evidence) out += '> ' + String(evidence).replace(/\\n/g, ' ') + '\\n';\n  if (action) out += '\\nSuggested action: ' + action + '\\n';\n  return out;\n}\n\nfunction fmtSecurityFinding(f) {\n  // string finding (fmtSecurityFinding): some models return findings as prose strings rather\n  // than objects. Render them as readable text -- dumping JSON at a developer\n  // is worse than no formatting at all.\n  if (typeof f === 'string') return '- ' + f.trim() + '\\n';\n  const dep = pick(f, ['dependency', 'alert', 'package'], null);\n  if (!dep) {\n    // Summary-only item (e.g. GLM's omitted-alerts note) -- render as a note, not a card.\n    const note = pick(f, ['note', 'detail', 'evidence', 'reachability'], null);\n    if (note) return '_' + note + '_\\n';\n    return '```json\\n' + JSON.stringify(f) + '\\n```\\n';\n  }\n  const ghsa = pick(f, ['ghsa', 'ghsa_id', 'cve'], '');\n  const severity = pick(f, ['severity'], '');\n  const status = pick(f, ['status', 'classification'], '');\n  // GLM has used 'evidence', 'detail', AND 'reachability' for this same\n  // purpose across different runs -- same model, inconsistent field naming.\n  let evidence = pick(f, ['evidence', 'detail', 'reachability', 'note'], '');\n  const caveat = pick(f, ['caveat'], '');\n  if (!evidence) evidence = restAsText(f, ['dependency', 'alert', 'package', 'ghsa', 'ghsa_id', 'cve', 'severity', 'status', 'classification', 'caveat']);\n  let header = '**' + dep + '**';\n  if (ghsa) header += ' — `' + ghsa + '`';\n  if (severity) header += ' (' + severity + ')';\n  if (status) header += ' — ' + status;\n  let out = header + '\\n';\n  if (evidence) out += '> ' + String(evidence).replace(/\\n/g, ' ') + '\\n';\n  if (caveat) out += '\\n_Caveat: ' + String(caveat).replace(/\\n/g, ' ') + '_\\n';\n  return out;\n}\n\nconst decision = (gate.final_decision || 'unknown').toUpperCase();\nconst flakyLines = (gate.flaky_verification || []).map((v) => {\n  const verdict = v.agrees === null\n    ? 'could not be compared to the agent (it reported no structured finding for this test), but stands on its own:'\n    : (v.agrees ? 'agrees with the agent:' : '**disagrees with** the agent:');\n  let proofLine;\n  if (v.proof_type === 'same_sha_contradiction') {\n    proofLine = 'PROVEN, not a pattern guess: commit `' + (v.contradicting_sha || '').slice(0, 10) +\n      '` -- the exact same code -- passed on one run and failed on another re-run. Since nothing changed between those runs, this cannot be a code regression.';\n  } else if (v.proof_type === 'mixed_pattern') {\n    proofLine = 'Pattern-based, not proof: pass/fail mixed across different commits, with no single commit showing a contradicting result. Suggestive of flakiness, weaker than a same-commit contradiction.';\n  } else if (v.proof_type === 'no_prior_failures') {\n    proofLine = 'This test has no prior failures in the checked history -- a first-time failure is treated as a real regression, not flakiness.';\n  } else {\n    proofLine = 'Insufficient history to classify with confidence.';\n  }\n  const attrNote = (v.attribution_reasons || []).length\n    ? '\\n  - _Attribution: ' + v.attribution_reasons.join(' ') + '_'\n    : '';\n  return '- Independent re-verification of `' + v.test_name + '` (fresh `get_test_history` call, not the agent\\'s own tool call) ' + verdict +\n    ' re-derived as **' + v.deterministic_class + '** (' + v.deterministic_evidence.pass_count + ' pass / ' +\n    v.deterministic_evidence.fail_count + ' fail across ' + v.deterministic_evidence.runs_checked + ' runs on main). ' + proofLine + attrNote;\n}).filter(Boolean);\n\nconst overridesBlock = (gate.deterministic_overrides || []).length\n  ? gate.deterministic_overrides.map((o) => '- ' + o).join('\\n')\n  : '_No deterministic overrides this run -- the agent\\'s decision stood as evaluated._';\n\nconst semantic = gate.semantic || {};\nconst _ktSeen = new Set();\nconst knownTrackedList = (gate.known_tracked || []).filter((k) => {\n  const key = String(k.ghsa || k.dependency || '').toUpperCase();\n  if (!key || _ktSeen.has(key)) return false;\n  _ktSeen.add(key);\n  return true;\n});\nconst testFindings = (gate.agent_test_findings || []).map(fmtTestFinding).join('\\n');\nconst securityFindings = (gate.agent_security_findings || []).map(fmtSecurityFinding).join('\\n');\nconst requiredActions = (gate.agent_required_actions || []).map((a, i) => (i + 1) + '. ' + a).join('\\n');\n\nlet body = '## AutoRelease AI — Validation Report\\n\\n';\nbody += '### Decision: ' + decision + ' _(confidence: ' + gate.final_confidence + '%)_\\n\\n';\nbody += (gate.agent_summary || '') + '\\n\\n';\nif (gate.html_url) body += '[View CI run](' + gate.html_url + ')\\n\\n';\n\nconst scope = gate.pr_scope || { available: false };\nconst scopedAlerts = gate.scoped_alerts || [];\nconst introducedAlerts = scopedAlerts.filter((a) => a.attribution === 'pr_touched_manifest' || a.attribution === 'introduced_by_pr');\nconst preExistingAlerts = scopedAlerts.filter((a) => a.attribution === 'pre_existing');\nconst flakyAll = gate.flaky_verification || [];\nconst flakyPre = flakyAll.filter((v) => v.attribution === 'pre_existing');\nconst flakyMaybe = flakyAll.filter((v) => v.attribution === 'possibly_introduced');\n\nbody += '### Scope of this PR\\n\\n';\nif (scope.available) {\n  const fileList = (scope.changed_files || []).map((f) => '`' + f + '`').join(', ');\n  const kinds = [];\n  if (!scope.touches_code) kinds.push('no code files');\n  if (!scope.touches_manifest) kinds.push('no dependency manifests');\n  body += 'Changes **' + scope.changed_count + ' file' + (scope.changed_count === 1 ? '' : 's') + '**: ' + fileList +\n    (kinds.length ? ' — ' + kinds.join(', ') : '') + '.\\n\\n';\n\n  // A behavioural regression is something this PR introduced, so it has to be\n  // counted here too -- otherwise the report claims nothing was introduced\n  // while listing a regression this PR caused.\n  const semanticIntroduced = semantic.available ? (semantic.regression_candidate_count || 0) : 0;\n  if (introducedAlerts.length + flakyMaybe.length + semanticIntroduced === 0) {\n    const bits = [];\n    if (preExistingAlerts.length) bits.push(preExistingAlerts.length + ' dependency finding(s)');\n    if (flakyPre.length) bits.push(flakyPre.length + ' test failure(s)');\n    body += '**Nothing in this report was introduced by this PR.**';\n    if (bits.length) {\n      body += ' ' + bits.join(' and ') + ' already existed on the base branch. They are reported for visibility and tracked separately — they are not charged to this PR.';\n    }\n    body += '\\n\\n';\n  } else {\n    const bits2 = [];\n    if (introducedAlerts.length) bits2.push(introducedAlerts.length + ' dependency finding(s)');\n    if (flakyMaybe.length) bits2.push(flakyMaybe.length + ' test failure(s)');\n    if (semanticIntroduced) bits2.push(semanticIntroduced + ' behavioural change(s)');\n    body += '**' + (introducedAlerts.length + flakyMaybe.length + semanticIntroduced) +\n      ' finding(s) are attributable to this PR** (' + bits2.join(', ') + ') and drive the verdict above.\\n\\n';\n  }\n} else {\n  body += '_Could not determine which files this PR changes (' + (scope.reason_unavailable || 'unknown') +\n    '), so everything is reported unscoped. Nothing was filtered out._\\n\\n';\n}\nbody += '---\\n\\n';\n\nif (testFindings) {\n  body += '#### Test Findings\\n\\n' + testFindings + '\\n';\n}\nif (flakyLines.length) {\n  body += '**Deterministic flaky/regression cross-check** _(independently re-verified, not just LLM self-report)_\\n\\n' + flakyLines.join('\\n') + '\\n\\n';\n}\nif (securityFindings) {\n  body += '#### Security Findings\\n\\n' + securityFindings + '\\n';\n}\nif (knownTrackedList.length > 0) {\n  // Collapsed: listing every tracked advisory inline buried the rest of the\n  // report. The count and the severity mix stay visible; the list is one click away.\n  const sevCount = {};\n  knownTrackedList.forEach((k) => { const s = String(k.severity || 'unknown').toLowerCase(); sevCount[s] = (sevCount[s] || 0) + 1; });\n  const sevText = ['critical', 'high', 'medium', 'low', 'unknown'].filter((s) => sevCount[s]).map((s) => sevCount[s] + ' ' + s).join(', ');\n  body += '#### Already tracked (skipped, not re-investigated)\\n\\n';\n  body += '**' + knownTrackedList.length + '** known vulnerabilities (' + sevText + ') were found on earlier runs and are already open as issues, so the agent did not spend tool calls re-deriving them. They still count against release readiness.\\n\\n';\n  body += '<details><summary>Show the ' + knownTrackedList.length + ' tracked issues</summary>\\n\\n';\n  body += knownTrackedList.map((k) => '- **' + (k.dependency || 'finding') + '** `' + (k.ghsa || '') + '` (' + (k.severity || 'unknown') + ') — tracked in #' + k.tracked_issue).join('\\n');\n  body += '\\n\\n</details>\\n\\n';\n}\n\nif (preExistingAlerts.length > 0) {\n  body += '#### Pre-existing in the repo (not introduced by this PR)\\n\\n';\n  body += preExistingAlerts.map((a) => '- **' + (a.dependency || 'finding') + '** `' + (a.ghsa || '') + '` (' + (a.severity || 'unknown') + ') — ' + (a.attribution_reason || '')).join('\\n');\n  body += '\\n\\n_Listed so they are not lost, but this PR did not cause them. \"Not introduced by this PR\" is a statement about who added the dependency — it is not a claim that the code is unaffected._\\n\\n';\n}\n\nif (semantic.available && (semantic.divergences || []).length > 0) {\n  body += '#### Behavioural divergence _(captured from real responses, not from tests)_\\n\\n';\n  if (semantic.invariant_checks > 0) {\n    const brokenN = (semantic.divergences || []).filter((d) => d.kind === 'invariant_violation').length;\n    body += '**Business rules:** ' + semantic.invariant_checks + ' check(s) from the ' +\n      (semantic.contract_source === 'base' ? 'base commit contract' : 'contract introduced in this PR') + ' — ' +\n      (brokenN ? '**' + brokenN + ' broken by this change**' : 'none broken by this change') + '.\\n\\n';\n  }\n  body += semantic.divergences.slice(0, 8).map((d) => {\n    const tag = d.confidence === 'high' ? '**' + String(d.kind).replace(/_/g, ' ') + '**' : String(d.kind).replace(/_/g, ' ');\n    return '- ' + tag + ' — ' + d.detail;\n  }).join('\\n');\n  const hidden = semantic.divergences.length - Math.min(8, semantic.divergences.length);\n  if (hidden > 0) body += '\\n- _(' + hidden + ' further divergence(s) not shown)_';\n  body += '\\n\\n_' + semantic.probes_compared + ' endpoint response(s) were captured on both commits and compared field by field. ' +\n    'This runs regardless of whether the test suite passed, because a test only checks what somebody thought to assert._\\n\\n';\n} else if (semantic.available && semantic.invariant_checks > 0) {\n  body += '#### Behavioural divergence\\n\\n_No behavioural change: ' + semantic.probes_compared + ' endpoint response(s) identical on both commits, and all ' +\n    semantic.invariant_checks + ' business-rule check(s) hold._\\n\\n';\n} else if (semantic.reason) {\n  body += '#### Behavioural divergence\\n\\n_Not checked this run: ' + semantic.reason + '._\\n\\n';\n}\n\nif (semantic.available && String(semantic.contract_changed_in_pr) === 'true' && semantic.contract_source === 'base') {\n  body += '> **This PR modifies the behaviour contract** (`probes.json` or `tools/`). It was still judged by the rules on the base commit; the contract change itself needs a reviewer sign-off.\\n\\n';\n}\n\nif (requiredActions) {\n  body += '#### Required Actions\\n\\n' + requiredActions + '\\n\\n';\n}\n\nbody += '<details><summary>Deterministic Gate details</summary>\\n\\n' + overridesBlock + '\\n\\n</details>\\n\\n';\nbody += '---\\n<sub>Generated by AutoRelease AI for commit `' + String(gate.head_sha || '').slice(0, 7) + '` · deterministic gate evaluated at ' + new Date().toISOString() + ' · this report is updated in place on every run</sub>';\n\n// GitHub turns every \"#N\" into a link to issue/PR N, so \"run #21\" pointed at an\n// unrelated issue. Only #N that belongs to a run reference is rewritten\n// (\"run #21\", \"runs #3, #5 and #6\" -> \"run 21\", \"runs 3, 5 and 6\"); issue\n// references such as \"tracked in #27\" keep their links.\nbody = body.replace(/\\b(?:CI\\s+)?runs?\\b(?:\\s*(?:#?\\d+|,|and|&|\\/|-|to|or))+/gi, (seg) => seg.replace(/#(\\d+)/g, '$1'));\n\nreturn [{\n  json: {\n    pr_number: prs[0].number,\n    repository: gate.repository,\n    comment_body: body,\n  },\n}];"
+      }
+    },
+    {
+      "id": "has-pr-number-if-1",
+      "name": "Has PR Number",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2280,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cond-has-pr",
+              "leftValue": "={{ $json.pr_number }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals",
+                "name": "filter.operator.notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "post-pr-comment-1",
+      "name": "Post PR Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2420,
+        280
+      ],
+      "parameters": {
+        "method": "={{ $json.method }}",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ body: $json.comment_body }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "fetch-tracked-issues-1",
+      "name": "Fetch Tracked Issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "position": [
+        640,
+        560
+      ],
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.repository }}/issues?state=open&per_page=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "ensure-tracked-issues-1",
+      "name": "Ensure Tracked Issues",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "alwaysOutputData": true,
+      "position": [
+        800,
+        560
+      ],
+      "parameters": {
+        "jsCode": "// Normalizes the tracked-issues lookup into the set of findings we have\n// ALREADY filed as GitHub issues, so the agent never re-investigates them.\n//\n// Dedup keys off a GHSA id embedded in the issue TITLE, not a label: the\n// PAT can create issues but GitHub silently drops labels without push\n// access (verified live), so a label-based scheme would fail open.\nconst items = $input.all();\nconst raw = items[0]?.json;\n\nconst isError = raw && typeof raw === 'object' && !Array.isArray(raw) && raw.message && !raw.number;\n\nlet issues = [];\nif (!isError) {\n  issues = items.flatMap((i) => {\n    const d = i.json;\n    if (Array.isArray(d)) return d;\n    return d && d.number ? [d] : [];\n  });\n}\n\nconst GHSA_RE = /GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}/i;\nconst FLAKY_RE = /Flaky test:\\s*(\\S+)/i;\n\nconst tracked = issues\n  .filter((iss) => !iss.pull_request)\n  .filter((iss) => String(iss.title || '').includes('[AutoRelease AI]'))\n  .map((iss) => {\n    const title = String(iss.title || '');\n    const g = title.match(GHSA_RE);\n    const f = title.match(FLAKY_RE);\n    return {\n      number: iss.number,\n      title,\n      url: iss.html_url,\n      ghsa: g ? g[0].toUpperCase() : null,\n      flaky_test: f ? f[1] : null,\n    };\n  });\n\nreturn [{\n  json: {\n    source: 'tracked_issues',\n    available: !isError,\n    count: tracked.length,\n    tracked,\n  },\n}];"
+      }
+    },
+    {
+      "id": "build-issue-payloads-1",
+      "name": "Build New Issue Payloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "alwaysOutputData": true,
+      "position": [
+        2000,
+        560
+      ],
+      "parameters": {
+        "jsCode": "// Files each NEWLY-investigated finding as a tracked GitHub issue, so the\n// next run can skip it instead of re-investigating (jury feedback).\n//\n// Titles carry the GHSA id / test name as the dedup key -- see\n// \"Ensure Tracked Issues\" for why the key lives in the title, not a label.\nconst gate = $input.first().json;\n\n// The Gate emits repository/html_url at top level but not the full evidence\n// context, so read the alert list from its own node (guaranteed upstream).\nlet context = {};\ntry {\n  context = $('Build Validation Context').first().json || {};\n} catch (e) {\n  context = {};\n}\nconst dependabot = context.dependabot || {};\n\nlet trackedList = [];\ntry {\n  trackedList = $('Ensure Tracked Issues').first().json.tracked || [];\n} catch (e) {\n  trackedList = [];\n}\nconst trackedFlaky = new Set(trackedList.filter((t) => t.flaky_test).map((t) => t.flaky_test));\nconst trackedGhsa = new Set(trackedList.filter((t) => t.ghsa).map((t) => String(t.ghsa).toUpperCase()));\n\n// Do not file anything off a run whose agent output could not be parsed --\n// a fail-safe verdict carries no findings worth tracking.\nconst parseFailed = !gate.agent_decision && (gate.deterministic_overrides || []).some((o) => String(o).includes('could not be parsed'));\n\nconst repository = gate.repository || context.repository;\nconst ciUrl = gate.html_url || context.html_url;\nconst prLink = ciUrl ? `\\n\\nDetected on CI run: ${ciUrl}` : '';\nconst payloads = [];\n\nif (!parseFailed) {\n  for (const a of dependabot.alerts || []) {\n    if (!a.ghsa || trackedGhsa.has(String(a.ghsa).toUpperCase())) continue;\n\n    // Pull the agent's own assessment for this alert when it mentions the GHSA,\n    // so the issue carries the reachability reasoning, not just the raw alert.\n    const findings = gate.agent_security_findings || [];\n    const match = findings.find((f) => JSON.stringify(f).toUpperCase().includes(String(a.ghsa).toUpperCase()));\n    const assessment = match ? JSON.stringify(match, null, 2) : '(no per-alert assessment captured for this finding)';\n\n    payloads.push({\n      json: {\n        repository,\n        title: `[AutoRelease AI] ${a.dependency || 'dependency'} ${a.ghsa}`,\n        body: [\n          `**Severity:** ${a.severity || 'unknown'}`,\n          `**Package:** ${a.dependency || 'unknown'} (${a.ecosystem || 'unknown'}) in \\`${a.manifest_path || 'unknown'}\\``,\n          `**Vulnerable range:** ${a.vulnerable_version_range || 'unknown'}`,\n          `**First patched version:** ${a.first_patched_version || 'unknown'}`,\n          '',\n          `**Summary:** ${a.summary || 'n/a'}`,\n          '',\n          '**Agent assessment at time of filing:**',\n          '\\`\\`\\`json',\n          assessment,\n          '\\`\\`\\`',\n          prLink,\n          '',\n          '---',\n          '<sub>Filed automatically by AutoRelease AI. Future runs will skip this finding while this issue stays open.</sub>',\n        ].join('\\n'),\n      },\n    });\n  }\n\n  for (const v of gate.flaky_verification || []) {\n    if (!v.test_name || trackedFlaky.has(v.test_name)) continue;\n    if (v.deterministic_class !== 'flaky') continue;\n\n    const ev = v.deterministic_evidence || {};\n    const proof = v.proof_type === 'same_sha_contradiction'\n      ? `Commit \\`${v.contradicting_sha}\\` -- the exact same code -- both passed and failed across re-runs. Nothing changed between those runs, so this cannot be a code regression.`\n      : 'Mixed pass/fail across different commits (pattern-based, weaker than a same-commit contradiction).';\n\n    payloads.push({\n      json: {\n        repository,\n        title: `[AutoRelease AI] Flaky test: ${v.test_name}`,\n        body: [\n          `**Classification:** flaky (${v.proof_type})`,\n          `**History on main:** ${ev.pass_count} pass / ${ev.fail_count} fail across ${ev.runs_checked} runs`,\n          '',\n          `**Evidence:** ${proof}`,\n          prLink,\n          '',\n          '---',\n          '<sub>Filed automatically by AutoRelease AI. Future runs will skip this finding while this issue stays open.</sub>',\n        ].join('\\n'),\n      },\n    });\n  }\n}\n\nif (payloads.length === 0) {\n  return [{ json: { _no_new_issues: true } }];\n}\nreturn payloads;"
+      }
+    },
+    {
+      "id": "has-new-issues-if-1",
+      "name": "Has New Issues To File",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2160,
+        560
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cond-has-issue",
+              "leftValue": "={{ $json.title }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals",
+                "name": "filter.operator.notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "create-tracked-issue-1",
+      "name": "Create Tracked Issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2320,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $json.repository }}/issues",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $json.title, body: $json.body }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "fetch-open-prs-scope-1",
+      "name": "Fetch Open PRs (scope)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "position": [
+        480,
+        760
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $json.repository }}/pulls?state=open&per_page=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "resolve-pr-scope-1",
+      "name": "Resolve PR Scope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "alwaysOutputData": true,
+      "position": [
+        640,
+        760
+      ],
+      "parameters": {
+        "jsCode": "// Resolves which PR (if any) this CI run belongs to, EARLY -- before the agent\n// runs -- so findings can be scoped to what this PR actually changed.\n//\n// \"Find Associated PR\" already does this lookup, but it sits after the Gate\n// (it exists to post the comment). Scope has to be known before the agent\n// prioritizes alerts, so the lookup happens again here. Same endpoint and the\n// same client-side head_sha match, for the reason documented there:\n// commits/{sha}/pulls returns empty for this repo/PAT combo.\nconst ctx = $('Normalize Analysis Input').first().json;\nconst items = $input.all().map((i) => i.json);\n\nconst prs = items.filter((p) => p && typeof p === 'object' && typeof p.number === 'number' && p.head);\nconst match = prs.find((p) => p.head.sha === ctx.head_sha);\n\nreturn [{\n  json: {\n    ...ctx,\n    pr_number: match ? match.number : null,\n    pr_title: match ? match.title : null,\n    pr_html_url: match ? match.html_url : null,\n    pr_base_ref: match ? match.base?.ref : null,\n    pr_lookup_ok: prs.length > 0 || items.length === 0,\n  },\n}];"
+      }
+    },
+    {
+      "id": "fetch-pr-changed-files-1",
+      "name": "Fetch PR Changed Files",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "position": [
+        800,
+        760
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $json.repository }}/pulls/{{ $json.pr_number || 0 }}/files?per_page=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "ensure-pr-scope-1",
+      "name": "Ensure PR Scope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "alwaysOutputData": true,
+      "position": [
+        960,
+        760
+      ],
+      "parameters": {
+        "jsCode": "// Turns the PR's changed-file list into the scope facts every downstream\n// attribution decision is made from (jury feedback: a README-only PR must not\n// be blamed for pre-existing repo issues).\n//\n// Everything here is a fact read off the diff -- no LLM involved. The agent is\n// told what this PR touched; it does not get to decide what it touched.\nconst ctx = $('Resolve PR Scope').first().json;\nconst items = $input.all().map((i) => i.json);\n\nconst isError = items.length > 0 && items[0] && items[0].message && !items[0].filename;\nconst hasPr = ctx.pr_number != null;\n\nconst files = (isError || !hasPr)\n  ? []\n  : items.filter((f) => f && f.filename).map((f) => ({\n      filename: f.filename,\n      status: f.status,\n      additions: f.additions ?? 0,\n      deletions: f.deletions ?? 0,\n    }));\n\nconst names = files.map((f) => f.filename);\n\n// A dependency vulnerability originates in a manifest. If the PR did not touch\n// the manifest, it did not introduce the dependency. Kept explicit rather than\n// guessed from the extension.\nconst MANIFESTS = [\n  'requirements.txt', 'requirements-dev.txt', 'constraints.txt',\n  'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',\n  'pyproject.toml', 'poetry.lock', 'Pipfile', 'Pipfile.lock', 'setup.py', 'setup.cfg',\n  'go.mod', 'go.sum', 'pom.xml', 'build.gradle', 'Gemfile', 'Gemfile.lock', 'Cargo.toml', 'Cargo.lock',\n];\nconst CODE_EXT = ['.py', '.js', '.jsx', '.ts', '.tsx', '.go', '.java', '.rb', '.rs', '.php', '.c', '.h', '.cpp', '.cs', '.kt', '.swift', '.scala', '.sh'];\n\nconst base = (p) => String(p).split('/').pop();\nconst isManifest = (p) => MANIFESTS.includes(base(p));\nconst isCode = (p) => CODE_EXT.some((e) => String(p).toLowerCase().endsWith(e));\nconst isTest = (p) => /(^|\\/)tests?\\//.test(p) || /(^|\\/)test_[^/]*$/.test(p) || /_test\\.[a-z]+$/.test(p) || /\\.spec\\.[a-z]+$/.test(p);\n\nconst codeFiles = names.filter(isCode);\nconst manifestFiles = names.filter(isManifest);\nconst testFiles = names.filter(isTest);\nconst otherFiles = names.filter((n) => !isCode(n) && !isManifest(n));\n\n// available=false means \"we could not determine scope\" -- downstream must then\n// fall back to reporting everything rather than silently filtering. Failing\n// open is the safe direction here: worst case we over-report, never under.\nconst available = hasPr && !isError && files.length > 0;\n\nreturn [{\n  json: {\n    ...ctx,\n    pr_scope: {\n      available,\n      is_pr: hasPr,\n      pr_number: ctx.pr_number,\n      pr_title: ctx.pr_title,\n      reason_unavailable: available ? null : (!hasPr ? 'no open PR matches this commit' : (isError ? 'changed-files lookup failed' : 'PR reports no changed files')),\n      changed_count: names.length,\n      changed_files: names,\n      code_files: codeFiles,\n      manifest_files: manifestFiles,\n      test_files: testFiles,\n      other_files: otherFiles,\n      touches_code: codeFiles.length > 0,\n      touches_manifest: manifestFiles.length > 0,\n      touches_tests: testFiles.length > 0,\n      docs_only: available && codeFiles.length === 0 && manifestFiles.length === 0,\n    },\n  },\n}];"
+      }
+    },
+    {
+      "id": "sem-fetch-arts-1",
+      "name": "Fetch Run Artifacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "position": [
+        1120,
+        900
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $json.repository }}/actions/runs/{{ $json.run_id }}/artifacts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "sem-pick-art-1",
+      "name": "Pick Semantic Artifact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "alwaysOutputData": true,
+      "position": [
+        1280,
+        900
+      ],
+      "parameters": {
+        "jsCode": "// Finds the semantic-captures artifact for this CI run. Named lookup, not\n// index-based: WF-0 also publishes 'test-results' to the same run.\nconst resp = $input.first().json;\nlet ctx = {};\ntry { ctx = $('Ensure PR Scope').first().json || {}; } catch (e) { ctx = {}; }\n\nconst artifacts = (resp && resp.artifacts) || [];\nconst match = artifacts.find((a) => a.name === 'semantic-captures' && !a.expired);\n\nreturn [{\n  json: {\n    ...ctx,\n    semantic_artifact_id: match ? match.id : null,\n    semantic_artifact_url: match ? match.archive_download_url : null,\n    semantic_lookup_note: match\n      ? null\n      : (artifacts.length === 0\n          ? 'no artifacts on this run'\n          : 'no semantic-captures artifact (found: ' + artifacts.map((a) => a.name).join(', ') + ')'),\n  },\n}];"
+      }
+    },
+    {
+      "id": "sem-has-art-1",
+      "name": "Has Semantic Captures",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1440,
+        900
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cond-sem-art",
+              "leftValue": "={{ $json.semantic_artifact_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals",
+                "name": "filter.operator.notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "sem-download-1",
+      "name": "Download Semantic Captures",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "position": [
+        1600,
+        840
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.semantic_artifact_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "sem-unzip-1",
+      "name": "Unzip Semantic Captures",
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        840
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "sem-split-1",
+      "name": "Split Capture Files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        840
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst binary = item.binary || {};\nreturn Object.entries(binary).map(([key, file]) => ({\n  json: { file_name: file.fileName || key },\n  binary: { data: file },\n}));"
+      }
+    },
+    {
+      "id": "sem-extract-1",
+      "name": "Extract Capture Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        2080,
+        840
+      ],
+      "parameters": {
+        "operation": "text",
+        "destinationKey": "content",
+        "options": {}
+      }
+    },
+    {
+      "id": "sem-diff-1",
+      "name": "Diff Responses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "alwaysOutputData": true,
+      "position": [
+        2240,
+        900
+      ],
+      "parameters": {
+        "jsCode": "'use strict';\r\n// Semantic regression detector.\r\n//\r\n// Premise: a green test suite only asserts what somebody thought to assert.\r\n// tests/test_main.py checks status 200 and that a key exists; it never checks\r\n// WHICH value came back. So a swap of two correct-looking values ships green.\r\n// This compares the actual HTTP responses of base vs head and reports where\r\n// behaviour diverged.\r\n//\r\n// Same trust split the Deterministic Validation Gate already uses: this file\r\n// establishes *that* behaviour changed and whether the change is self-\r\n// contradictory. It never decides whether the change was intended -- that\r\n// judgement is the agent's, and the agent only ever sees divergences this\r\n// file actually found.\r\n\r\n// Flattens a JSON body to leaf paths so a change can be pointed at precisely\r\n// (\"home_banner.banner\") instead of \"the body changed\".\r\nfunction flatten(value, prefix, out) {\r\n  out = out || {};\r\n  prefix = prefix || '';\r\n  if (value === null || typeof value !== 'object') {\r\n    out[prefix || '(root)'] = value;\r\n    return out;\r\n  }\r\n  if (Array.isArray(value)) {\r\n    value.forEach((v, i) => flatten(v, prefix + '[' + i + ']', out));\r\n    return out;\r\n  }\r\n  const keys = Object.keys(value);\r\n  if (keys.length === 0) out[prefix || '(root)'] = '{}';\r\n  keys.forEach((k) => flatten(value[k], prefix ? prefix + '.' + k : k, out));\r\n  return out;\r\n}\r\n\r\n// The coherence check, and the reason the banner case is detectable at all.\r\n//\r\n// It runs PER CHANGED LEAF, not across the whole body. After a banner swap the\r\n// response still contains partner:\"amazon\" untouched, so searching the whole\r\n// body for \"amazon\" finds nothing wrong. Only the banner leaf broke its own\r\n// promise: it used to name the requested partner and now names a different one.\r\n//\r\n// Do not \"simplify\" this to a whole-body scan -- see the test named\r\n// coherence is per-leaf, not whole-body.\r\nfunction checkCoherence(probe, path, oldValue, newValue) {\r\n  const tokens = probe.identity_tokens || [];\r\n  if (!tokens.length) return null;\r\n  const oldStr = String(oldValue == null ? '' : oldValue).toLowerCase();\r\n  const newStr = String(newValue == null ? '' : newValue).toLowerCase();\r\n\r\n  for (const raw of tokens) {\r\n    const token = String(raw).toLowerCase();\r\n    if (!token) continue;\r\n    // The leaf used to reference this probe's own identity and no longer does.\r\n    if (oldStr.includes(token) && !newStr.includes(token)) {\r\n      const foreign = (probe.foreign_tokens || [])\r\n        .map((t) => String(t).toLowerCase())\r\n        .find((t) => t && t !== token && newStr.includes(t));\r\n      return {\r\n        kind: 'coherence_break',\r\n        detail: '`' + path + '` identified `' + token + '` before this change and no longer does' +\r\n          (foreign ? ', it now references `' + foreign + '` instead' : '') +\r\n          '. The request still asks for `' + token + '`, so this value now contradicts the request that produced it.',\r\n        confidence: foreign ? 'high' : 'medium',\r\n      };\r\n    }\r\n  }\r\n  return null;\r\n}\r\n\r\nconst isMissing = (s) => s === 404 || s === 405;\r\nconst isOk = (s) => typeof s === 'number' && s >= 200 && s < 300;\r\n\r\nfunction diffProbe(baseProbe, headProbe) {\r\n  const divergences = [];\r\n  const id = baseProbe.id;\r\n\r\n  // An endpoint that did not exist before is new capability, not a regression.\r\n  // Diffing its body against a 404's error body is meaningless and produces\r\n  // nonsense like \"`detail` was returned before and is now gone\" -- verified\r\n  // against the real capture from PR #13. Report the addition and stop.\r\n  if (isMissing(baseProbe.status) && isOk(headProbe.status)) {\r\n    return [{\r\n      probe_id: id, path: '(endpoint)', kind: 'endpoint_added',\r\n      before: baseProbe.status, after: headProbe.status,\r\n      detail: '`' + (baseProbe.path || id) + '` did not exist before this change (' + baseProbe.status +\r\n        ') and now responds ' + headProbe.status + '. New capability, not a regression.',\r\n      confidence: 'low',\r\n    }];\r\n  }\r\n\r\n  // The reverse genuinely breaks callers.\r\n  if (isOk(baseProbe.status) && isMissing(headProbe.status)) {\r\n    return [{\r\n      probe_id: id, path: '(endpoint)', kind: 'endpoint_removed',\r\n      before: baseProbe.status, after: headProbe.status,\r\n      detail: '`' + (baseProbe.path || id) + '` responded ' + baseProbe.status +\r\n        ' before this change and now returns ' + headProbe.status + '. Any caller depending on it breaks.',\r\n      confidence: 'high',\r\n    }];\r\n  }\r\n\r\n  if (baseProbe.status !== headProbe.status) {\r\n    divergences.push({\r\n      probe_id: id, path: '(status)', kind: 'status_changed',\r\n      before: baseProbe.status, after: headProbe.status,\r\n      detail: 'HTTP status changed from ' + baseProbe.status + ' to ' + headProbe.status + '.',\r\n      confidence: 'high',\r\n    });\r\n  }\r\n\r\n  const a = flatten(baseProbe.body);\r\n  const b = flatten(headProbe.body);\r\n  const paths = Array.from(new Set(Object.keys(a).concat(Object.keys(b)))).sort();\r\n\r\n  for (const p of paths) {\r\n    const inA = Object.prototype.hasOwnProperty.call(a, p);\r\n    const inB = Object.prototype.hasOwnProperty.call(b, p);\r\n\r\n    // A field appearing is additive -- new capability, not a regression.\r\n    // Reported at low confidence so the agent can see it and usually ignore it.\r\n    if (!inA && inB) {\r\n      divergences.push({ probe_id: id, path: p, kind: 'field_added', before: undefined, after: b[p],\r\n        detail: '`' + p + '` is new in this change.', confidence: 'low' });\r\n      continue;\r\n    }\r\n    if (inA && !inB) {\r\n      divergences.push({ probe_id: id, path: p, kind: 'field_removed', before: a[p], after: undefined,\r\n        detail: '`' + p + '` was returned before this change and is now gone. Any client reading it breaks.',\r\n        confidence: 'high' });\r\n      continue;\r\n    }\r\n    if (a[p] === b[p]) continue;\r\n\r\n    const coherence = checkCoherence(baseProbe, p, a[p], b[p]);\r\n    divergences.push({\r\n      probe_id: id, path: p, kind: coherence ? coherence.kind : 'value_changed',\r\n      before: a[p], after: b[p],\r\n      detail: coherence ? coherence.detail : '`' + p + '` changed from `' + a[p] + '` to `' + b[p] + '`.',\r\n      confidence: coherence ? coherence.confidence : 'low',\r\n    });\r\n  }\r\n\r\n  return divergences;\r\n}\r\n\r\n// Business-rule (invariant) results, evaluated in CI by tools/invariants.py on\r\n// both commits. This is what makes a regression provable without a test: a\r\n// changed number alone might be intended, but a rule from the BASE contract\r\n// that held before and fails now is broken behaviour, whatever the diff was.\r\n//\r\n// A rule already failing on base is reported but NOT pinned on this PR -- the\r\n// same pre-existing vs introduced line the scope check draws for CVEs.\r\nconst newEndpointError = (r) => r && r.status === 'error' && /status 40[45]\\b/.test(String(r.error || ''));\r\n\r\nfunction diffInvariants(baseCapture, headCapture) {\r\n  const baseByKey = {};\r\n  ((baseCapture && baseCapture.invariants) || []).forEach((r) => { baseByKey[r.key] = r; });\r\n  const out = [];\r\n\r\n  for (const h of ((headCapture && headCapture.invariants) || [])) {\r\n    const b = baseByKey[h.key];\r\n    const baseHolds = !!b && b.status === 'holds';\r\n    const baseNew = !b || newEndpointError(b);\r\n    const headBroken = h.status === 'violated' || h.status === 'error';\r\n    const rule = '\"' + (h.description || h.id) + '\"';\r\n    const where = '`' + h.probe + '`';\r\n    const evidence = h.observed ? ' Observed: ' + h.observed + '.'\r\n      : (h.error ? ' It could not be evaluated: ' + h.error + '.' : '');\r\n    const base = { probe_id: h.probe, path: '(rule) ' + h.id, rule: h.rule, before: b ? b.status : null, after: h.status };\r\n\r\n    if (baseHolds && headBroken) {\r\n      out.push(Object.assign(base, {\r\n        kind: 'invariant_violation', confidence: 'high',\r\n        detail: 'Business rule ' + rule + ' held before this change and ' +\r\n          (h.status === 'violated' ? 'is now violated' : 'can no longer be evaluated') + ' on ' + where + '.' + evidence,\r\n      }));\r\n    } else if (baseNew && headBroken) {\r\n      out.push(Object.assign(base, {\r\n        kind: 'invariant_violation_new', confidence: 'medium',\r\n        detail: 'Business rule ' + rule + ' fails on ' + where + ', which has no baseline on the base commit (new endpoint or new rule).' + evidence,\r\n      }));\r\n    } else if (b && !baseHolds && !baseNew && headBroken) {\r\n      out.push(Object.assign(base, {\r\n        kind: 'invariant_preexisting_violation', confidence: 'low',\r\n        detail: 'Business rule ' + rule + ' was already failing on ' + where + ' before this change; not introduced by this PR.' + evidence,\r\n      }));\r\n    } else if (b && !baseHolds && !baseNew && h.status === 'holds') {\r\n      out.push(Object.assign(base, {\r\n        kind: 'invariant_fixed', confidence: 'low',\r\n        detail: 'Business rule ' + rule + ' was failing on ' + where + ' before this change and now holds.',\r\n      }));\r\n    }\r\n  }\r\n  return out;\r\n}\r\n\r\nfunction diffResponses(baseCapture, headCapture) {\r\n  const baseProbes = (baseCapture && baseCapture.probes) || [];\r\n  const headProbes = (headCapture && headCapture.probes) || [];\r\n  const byId = {};\r\n  headProbes.forEach((p) => { byId[p.id] = p; });\r\n\r\n  const divergences = [];\r\n  const skipped = [];\r\n\r\n  for (const bp of baseProbes) {\r\n    const hp = byId[bp.id];\r\n    if (!hp) { skipped.push({ probe_id: bp.id, reason: 'probe missing from head capture' }); continue; }\r\n    divergences.push(...diffProbe(bp, hp));\r\n  }\r\n  for (const hp of headProbes) {\r\n    if (!baseProbes.some((bp) => bp.id === hp.id)) skipped.push({ probe_id: hp.id, reason: 'probe missing from base capture' });\r\n  }\r\n\r\n  divergences.push(...diffInvariants(baseCapture, headCapture));\r\n\r\n  const rank = { high: 0, medium: 1, low: 2 };\r\n  divergences.sort((x, y) => (rank[x.confidence] ?? 3) - (rank[y.confidence] ?? 3));\r\n\r\n  // One number, one meaning: \"did this PR change behaviour in a way that could\r\n  // be a regression\". Purely additive changes do not count. Every consumer\r\n  // (the Gate's rules, the PR comment's scope line) reads THIS field rather\r\n  // than recombining coherence/high counts on its own -- two consumers deriving\r\n  // the same idea differently is how a report ends up contradicting itself.\r\n  // Not regressions: additive changes, fixes, and rules that were already\r\n  // broken before this PR.\r\n  const ADDITIVE = ['endpoint_added', 'field_added', 'invariant_fixed', 'invariant_preexisting_violation'];\r\n  const regressionCandidates = divergences.filter((d) => ADDITIVE.indexOf(d.kind) === -1);\r\n\r\n  return {\r\n    available: true,\r\n    probes_compared: baseProbes.filter((bp) => byId[bp.id]).length,\r\n    divergence_count: divergences.length,\r\n    high_confidence_count: divergences.filter((d) => d.confidence === 'high').length,\r\n    coherence_break_count: divergences.filter((d) => d.kind === 'coherence_break').length,\r\n    regression_candidate_count: regressionCandidates.length,\r\n    invariant_checks: ((headCapture && headCapture.invariants) || []).length,\r\n    invariant_violation_count: divergences.filter((d) => d.kind === 'invariant_violation' || d.kind === 'invariant_violation_new').length,\r\n    contract_source: (headCapture && headCapture.contract_source) || null,\r\n    contract_changed_in_pr: (headCapture && headCapture.contract_changed_in_pr) || null,\r\n    invariant_error: (headCapture && headCapture.invariant_error) || null,\r\n    divergences,\r\n    skipped,\r\n  };\r\n}\r\n\r\n\n// ---------------------------------------------------------------------------\n// n8n wrapper. Reached from BOTH branches of \"Has Semantic Captures\": with the\n// extracted capture files when the artifact existed, and with a single\n// pass-through item when it did not. Absence is reported as\n// available:false with a reason -- never as \"nothing diverged\".\nlet ctx = {};\ntry { ctx = $('Pick Semantic Artifact').first().json || {}; } catch (e) { ctx = {}; }\n\nconst texts = $input.all().map((i) => i.json && i.json.content).filter((t) => typeof t === 'string' && t.length);\n\nconst parsed = [];\nfor (const t of texts) {\n  try { parsed.push(JSON.parse(t)); } catch (e) { /* CAPTURE_STATUS or truncated file */ }\n}\n\n// Captures are matched on the label INSIDE the file rather than on filename:\n// extractFromFile does not reliably carry json fields through (verified live).\nconst base = parsed.find((p) => p && p.label === 'base' && Array.isArray(p.probes));\nconst head = parsed.find((p) => p && p.label === 'head' && Array.isArray(p.probes));\n\nconst passthrough = (extra) => [{ json: { ...ctx, semantic: { source: 'semantic_probe', ...extra } } }];\n\nif (!ctx.semantic_artifact_id) {\n  return passthrough({ available: false, divergence_count: 0, divergences: [],\n    reason: 'the semantic probe did not publish captures for this run (' + (ctx.semantic_lookup_note || 'reason unknown') + '), so behaviour was not compared' });\n}\nif (!base || !head) {\n  return passthrough({ available: false, divergence_count: 0, divergences: [],\n    reason: 'capture artifact was present but ' + (!base && !head ? 'neither side' : (!base ? 'the base capture' : 'the head capture')) + ' could be read, so behaviour was not compared' });\n}\n\nconst result = diffResponses(base, head);\nreturn [{ json: { ...ctx, semantic: { source: 'semantic_probe', ...result, reason: null } } }];"
+      }
+    },
+    {
+      "id": "find-existing-report-1",
+      "name": "Find Existing Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "position": [
+        2480,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $json.repository }}/issues/{{ $json.pr_number }}/comments?per_page=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KmkmjtyH6wK2g6pW",
+          "name": "GitHub Hackathon PAT"
+        }
+      }
+    },
+    {
+      "id": "choose-create-update-1",
+      "name": "Create Or Update Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "alwaysOutputData": true,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Update the existing AutoRelease report if this PR already has one, otherwise\n// create it. Matched on the report's own heading, and the NEWEST match wins,\n// so a PR that picked up duplicates before this existed converges on one.\nconst payload = $('Format PR Comment').first().json;\nconst MARKER = \"## AutoRelease AI — Validation Report\";\n\nconst existing = $input.all()\n  .map((i) => i.json)\n  .filter((c) => c && typeof c.id === 'number' && typeof c.body === 'string' && c.body.startsWith(MARKER))\n  .sort((a, b) => b.id - a.id);\n\nconst repo = payload.repository;\nconst target = existing[0];\nreturn [{\n  json: {\n    ...payload,\n    existing_comment_id: target ? target.id : null,\n    method: target ? 'PATCH' : 'POST',\n    url: target\n      ? 'https://api.github.com/repos/' + repo + '/issues/comments/' + target.id\n      : 'https://api.github.com/repos/' + repo + '/issues/' + payload.pr_number + '/comments',\n  },\n}];"
+      }
+    },
+    {
+      "id": "agent-gave-verdict-1",
+      "name": "Agent Gave Verdict?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1500,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cond-verdict",
+              "leftValue": "={{ $json.agent_parsed !== null || $runIndex >= 1 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ask-agent-again-1",
+      "name": "Ask Agent Again",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        480
+      ],
+      "parameters": {
+        "jsCode": "// The agent's previous turn produced no verdict JSON. Re-run it once with the\n// same evidence plus an explicit instruction placed FIRST, so it is the first\n// thing the model reads. The IF in front of this node guarantees at most one\n// retry ($runIndex guard), after which the normal fail-safe path applies.\nconst context = $('Build Validation Context').first().json;\nconst previous = String($('Parse Agent Output').first().json.agent_raw_output || '').slice(-400);\nreturn [{\n  json: {\n    retry_instruction: 'Your previous turn ended WITHOUT the verdict JSON. It ended with: \"' + previous +\n      '\". You have already investigated; only call a tool again if it is essential. Reply now with your analysis ' +\n      'and the verdict JSON object with keys decision, confidence, summary, test_findings, security_findings, ' +\n      'validated_findings, required_actions.',\n    ...context,\n  },\n}];"
+      }
     }
   ],
   "connections": {
@@ -550,12 +1324,7 @@
             "index": 0
           },
           {
-            "node": "Fetch Dependabot Alerts",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Fetch Code Scanning Alerts",
+            "node": "Fetch Open PRs (scope)",
             "type": "main",
             "index": 0
           }
@@ -639,17 +1408,6 @@
         ]
       ]
     },
-    "Google Gemini Chat Model": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "AutoRelease Validation Agent",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Call 'AutoRelease Tool - get_advisory'": {
       "ai_tool": [
         [
@@ -698,7 +1456,7 @@
       "main": [
         [
           {
-            "node": "Deterministic Validation Gate",
+            "node": "Agent Gave Verdict?",
             "type": "main",
             "index": 0
           }
@@ -710,6 +1468,16 @@
         [
           {
             "node": "Post Commit Status",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Find Associated PR",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build New Issue Payloads",
             "type": "main",
             "index": 0
           }
@@ -765,6 +1533,342 @@
         [
           {
             "node": "Normalize Code Scanning Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Failed Tests For Verification": {
+      "main": [
+        [
+          {
+            "node": "Has Failed Tests To Verify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Failed Tests To Verify": {
+      "main": [
+        [
+          {
+            "node": "Run get_test_history (verification)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cross-Check Flaky Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run get_test_history (verification)": {
+      "main": [
+        [
+          {
+            "node": "Cross-Check Flaky Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cross-Check Flaky Classification": {
+      "main": [
+        [
+          {
+            "node": "Deterministic Validation Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GLM Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AutoRelease Validation Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Associated PR": {
+      "main": [
+        [
+          {
+            "node": "Format PR Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format PR Comment": {
+      "main": [
+        [
+          {
+            "node": "Has PR Number",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has PR Number": {
+      "main": [
+        [
+          {
+            "node": "Find Existing Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Fetch Tracked Issues": {
+      "main": [
+        [
+          {
+            "node": "Ensure Tracked Issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure Tracked Issues": {
+      "main": [
+        [
+          {
+            "node": "Fetch Dependabot Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build New Issue Payloads": {
+      "main": [
+        [
+          {
+            "node": "Has New Issues To File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has New Issues To File": {
+      "main": [
+        [
+          {
+            "node": "Create Tracked Issue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Fetch Open PRs (scope)": {
+      "main": [
+        [
+          {
+            "node": "Resolve PR Scope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve PR Scope": {
+      "main": [
+        [
+          {
+            "node": "Fetch PR Changed Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch PR Changed Files": {
+      "main": [
+        [
+          {
+            "node": "Ensure PR Scope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure PR Scope": {
+      "main": [
+        [
+          {
+            "node": "Fetch Run Artifacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Run Artifacts": {
+      "main": [
+        [
+          {
+            "node": "Pick Semantic Artifact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Semantic Artifact": {
+      "main": [
+        [
+          {
+            "node": "Has Semantic Captures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Semantic Captures": {
+      "main": [
+        [
+          {
+            "node": "Download Semantic Captures",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Diff Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Semantic Captures": {
+      "main": [
+        [
+          {
+            "node": "Unzip Semantic Captures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unzip Semantic Captures": {
+      "main": [
+        [
+          {
+            "node": "Split Capture Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Capture Files": {
+      "main": [
+        [
+          {
+            "node": "Extract Capture Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Capture Text": {
+      "main": [
+        [
+          {
+            "node": "Diff Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diff Responses": {
+      "main": [
+        [
+          {
+            "node": "Fetch Tracked Issues",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Code Scanning Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Existing Report": {
+      "main": [
+        [
+          {
+            "node": "Create Or Update Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Or Update Report": {
+      "main": [
+        [
+          {
+            "node": "Post PR Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent Gave Verdict?": {
+      "main": [
+        [
+          {
+            "node": "List Failed Tests For Verification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ask Agent Again",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Agent Again": {
+      "main": [
+        [
+          {
+            "node": "AutoRelease Validation Agent",
             "type": "main",
             "index": 0
           }
